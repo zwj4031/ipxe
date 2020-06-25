@@ -24,8 +24,8 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
  * "iPXE".
  *
  */
-#define PRODUCT_NAME "Upgrade for DiyGRUBFM 20200625"
-#define PRODUCT_SHORT_NAME "Upgrade for DiyGRUBFM"
+#define PRODUCT_NAME "LoadiPXE for tftpboot 20191124"
+#define PRODUCT_SHORT_NAME "Cong Loadefi iPXE 20191124"
 #define PRODUCT_URI "http://ipxe.org"
 
 /*
