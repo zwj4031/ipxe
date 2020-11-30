@@ -1,8 +1,5 @@
 #!ipxe
-ifopen net0
-#同上
-ifstat
-#这个我自己调试用的
+dhcp
 set getfile /ipxeboot.txt
 :boot
 #找不到next-server变量就把dhcp-server的变量值给它
@@ -11,4 +8,6 @@ isset ${next-server} || set next-server ${dhcp-server}
 isset ${proxydhcp/next-server} || set proxydhcp/next-server ${proxydhcp/dhcp-server}
 #如果proxydhcp/next-server变量值存在，那么赋给booturl，不然就使用next-server的变量值
 isset ${proxydhcp/next-server} && set booturl ${proxydhcp/next-server} || set booturl ${next-server}
-chain http://${booturl}/ipxeboot.txt
+prompt --key 0x02 --timeout 2000 Press Ctrl-B for the iPXE command line... && shell ||
+chain http://${booturl}/ipxeboot.txt ||
+prompt --key 0x02 --timeout 2000 Press Ctrl-B for the iPXE command line... && shell ||
