@@ -1,20 +1,34 @@
-name: Sync
+name: Sync Fork with Upstream
 
 on:
   schedule:
-  - cron:  "0 * * * *"
-permissions:
-  contents: read
-  pull-requests: write  
+    - cron: '0 7 * * 1,4'  # 每周一和周四的 UTC 时间 07:00 运行
+  workflow_dispatch:        # 允许手动触发
+
 jobs:
-  repo-sync:
+  sync:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - name: repo-sync
-      uses: repo-sync/github-sync@v2
-      with:
-        source_repo: "https://github.com/ipxe/ipxe.git"
-        source_branch: "master"
-        destination_branch: "ipxe"
-        github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout the repository
+        uses: actions/checkout@v3
+
+      - name: Set up Git
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/ipxe/ipxe.git
+          git fetch upstream
+
+      - name: Merge upstream changes
+        run: |
+          git checkout main
+          git merge upstream/main --ff-only
+
+      - name: Push changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git push origin main
