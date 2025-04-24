@@ -1,0 +1,89 @@
+#!ipxe
+ifopen net0
+ifstat
+
+
+
+   set menu-timeout 8000
+   set menu-default nextserver
+:boot
+dhcp 
+set getfile ${filename}.ipxe
+isset ${next-server} || set next-server ${dhcp-server}
+isset ${proxydhcp/next-server} || set proxydhcp/next-server ${proxydhcp/dhcp-server}
+ 
+
+prompt --key 0x02 --timeout 2000 Press Ctrl-B for the iPXE command line... && shell ||
+chain file:/tftpboot/${getfile} || goto netboot
+
+:netboot
+set bootfile ${filename}
+set serverip ${proxydhcp/next-server}|${next-server}
+isset ${proxydhcp/next-server} && chain tftp://${proxydhcp/next-server}/${getfile} ||
+chain tftp://${next-server}/${getfile} || goto start
+
+
+
+:menu
+
+goto start
+
+:start
+  menu Choose An Existing Server!  Serverip:${serverip} bootfile: ${getfile}
+  item --gap --             --------------------------------PXE BOOT-----------------------------
+  item nextserver        ${next-server}
+  item proxydhcp         ${proxydhcp/next-server}
+  item gitcloud          Cloud Boot
+  item retry             set filename    
+
+  item --gap --             ---------------------------- Advanced options -----------------------
+  item --key c config       Configure settings                                   -- c
+  item --key p pxelinux     Load PXELinux menu                                   -- p
+  item shell                Drop to iPXE shell
+  item reboot               Reboot computer
+  item --key x exit         Exit iPXE and continue BIOS boot                     -- x
+  choose --timeout ${menu-timeout} --default ${menu-default} selected
+  goto ${selected}
+
+:nextserver
+echo ${next-server}/${getfile}
+chain tftp://${next-server}/${getfile} || set menu-default proxydhcp ||
+goto start
+
+:proxydhcp
+echo ${proxydhcp/next-server}/${getfile}
+chain tftp://${proxydhcp/next-server}/${getfile} || set menu-default gitcloud ||
+goto start
+
+:gitcloud
+echo Cloud Boot
+chain https://raw.githubusercontent.com/zwj4031/netboot/master/${getfile} || set menu-default retry ||
+goto start
+
+
+
+:retry
+console
+echo set Filename 
+read getfile 
+ set menu-default dhcpserver
+goto start
+
+:shell
+  echo Type 'exit' to get the back to the menu
+  shell
+  goto start
+
+:failed
+  echo Booting failed, dropping to shell
+  goto shell
+
+:reboot
+  reboot
+
+:exit
+  exit
+
+:config
+  config
+  goto start

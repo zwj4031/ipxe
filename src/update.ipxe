@@ -1,0 +1,18 @@
+#!ipxe
+ifopen net0
+ifstat
+dhcp
+set boot-url https://raw.githubusercontent.com/zwj4031/diygrubfm/master
+#set boot-url https://gitee.com/zwj4031/diygrubfm/raw/master
+set g4dcmd
+ 
+ #在bios和efi不同环境取相应的文件
+  iseq ${platform} pcbios && && kernel ${boot-url}/grub.exe ||
+  iseq ${platform} pcbios && initrd ${boot-url}/updates.gz ||
+  iseq ${platform} pcbios && initrd ${boot-url}/512 ||
+  iseq ${platform} pcbios && imgargs grub.exe --config-file="map --mem (rd)+1 (fd32);map --hook;chainloader (255);boot" ||
+  iseq ${platform} efi && kernel ${boot-url}/wimboot gui ||
+  iseq ${platform} efi && initrd -n bootmgfw.efi file:/boot/grubfm/grubfmx64.efi ||
+  iseq ${platform} efi && initrd ${boot-url}/updates.gz || 
+
+ boot

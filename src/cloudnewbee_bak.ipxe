@@ -1,0 +1,63 @@
+#!ipxe
+set getfile /ipxeboot.txt
+:retry_dhcp
+dhcp || goto retry_dhcp
+:boot
+#找不到next-server变量就把dhcp-server的变量值给它
+isset ${next-server} || set next-server ${dhcp-server}
+#找不到proxydhcp/next-server变量就把proxydhcp/dhcp-server的变量值给它
+isset ${proxydhcp/next-server} || set proxydhcp/next-server ${proxydhcp/dhcp-server}
+#如果proxydhcp/next-server变量值存在，那么赋给booturl，不然就使用next-server的变量值
+isset ${proxydhcp/next-server} && set booturl ${proxydhcp/next-server} || set booturl ${next-server}
+prompt --key 0x02 --timeout 2000 Press Ctrl-B for the iPXE command line... && shell ||
+chain https://gitee.com/zwj4031/cloud-pe/raw/master/cloud.ipxe || goto retry_dhcp
+
+isset ${x} || set x 800   
+isset ${y} || set y 600    
+#set wim https://lingshulian.com/s/t/9891bf28af911331
+set wimboot https://gitee.com/zwj4031/ipxefm/raw/main/app/wimboot/wimboot
+set bcd https://pan.bilnn.cn/api/v3/file/sourcejump/AQam3GHx/_bZc2N--ydn2fMm1l2cLE0ZyjzRZVI6GqBBM10z-7ug*
+set bootsdi https://pan.bilnn.cn/api/v3/file/sourcejump/WXO4mWh9/W-Q1QqY9KPZHVZMb9YNpV3Mm_D8jNGRR3NzuBnIiLTo*
+set bootmgfw https://pan.bilnn.cn/api/v3/file/sourcejump/2lmDxwiG/vHYgQcbi86HbwNpgR-0zyLDnUBR8-ius8Whm-qpTx7M*
+set bootmgr https://pan.bilnn.cn/api/v3/file/sourcejump/eWNeQpSZ/8lfj6ZJ7OgbOuBzEvsNozSCf_KyoVrAi0GR864WjwoA*
+set bootresdll https://pan.bilnn.cn/api/v3/file/sourcejump/Md4POzcv/kegMBHw0jDss-J2wa3lNOU8Xik11Sh0WOQ-oLyy-_Jk*
+set segmono_boot https://pan.bilnn.cn/api/v3/file/sourcejump/kOgm48SA/DtptHHKfu_3JYXSN67wQ_chjL6SLhP_Xr4PC2moIBCU*
+set segoen_slboot https://pan.bilnn.cn/api/v3/file/sourcejump/pmqED2hw/a2TUqTXwhMYL3Isp9KUakr2jSnL8JJW4LhFOIUoXA4A*
+set segoe_slboot https://pan.bilnn.cn/api/v3/file/sourcejump/lmyG7NSb/XL9skLhAoIju5P6WJjpPX_ShnWS_UG3A0LORF_0I5ns*
+set wgl4_boot https://pan.bilnn.cn/api/v3/file/sourcejump/6WmzvXCg/TGqRb7FpPgqLNYkL8dxe_YKeZ4itB6iFafa9EpQmin0*
+#set bootwim https://pan.bilnn.cn/api/v3/file/sourcejump/3nmZBxTD/invKqAiGn7ahH9NO9JD5xiA4YK29MeNbI1x6uz1ovrE*
+#set bootwim https://01gjp-my.sharepoint.com/:u:/g/personal/wanglei52076_01gjp_onmicrosoft_com/Efc5jyo700FAlNhF7v-7Ai8BTvQOP9I10SYL-N8BMbdCdQ?e=TeJidf&download=1
+set bootwim http://oss.panmaiquit.com/QnF4eEt1WHAxdFVYcTZYaUgvL3BBRndIcXRiM1RwUDJEZTRDNkp0Yzg4WTE0UDFtbzlDRm4xN2pjeDJSNHBpRkphY1VFTzlQTmVRRnFsN3E5REhYZjkra3JTRXhrZi9MTmVIZkVuamJOdmVhN0JkM0drUDNmOVBpODJ6bFFYRjNYZkR0RzhVRmNwai8xUFNQUWwrWHIrLzdNcHVLK2VtQmlWbVlzMjFlR29yWlpJaTJQdDZtYm5mdUtnOWJtSm16MlJrUHo2ckZIeW5LaFlITlkvOVhTQ2hJVlY1Z3FieHVYUWNKSXBuWkxPbStYS2FGTlhqZzhjVzZDMWpQWGxrNQ==
+set loading https://pan.bilnn.cn/api/v3/file/sourcejump/XrA7XbFd/TIV9JkcE4OWn-ZWrO7z-qEY42znSrv8dq29lo9zGvfA*
+
+kernel ${wimboot} gui ||
+#在bios和efi不同环境取相应的文件
+iseq ${platform} pcbios && initrd ${bootmgr} bootmgr ||
+iseq ${platform} efi && initrd -n bootx64.efi ${bootmgfw} ||
+
+iseq ${platform} pcbios && initrd ${bcd} bcd ||
+iseq ${platform} efi && initrd -n bcd ${bcd} ||
+
+iseq ${platform} pcbios && initrd ${bootsdi} boot.sdi ||
+iseq ${platform} efi && initrd -n boot.sdi ${bootsdi} ||
+
+iseq ${platform} pcbios && initrd ${segoen_slboot} segoen_slboot.ttf ||
+iseq ${platform} efi && initrd -n segoen_slboot.ttf ${segoen_slboot} ||
+
+iseq ${platform} pcbios && initrd ${segoe_slboot} segoe_slboot.ttf ||
+iseq ${platform} efi && initrd -n segoe_slboot.ttf ${segoe_slboot} ||
+
+iseq ${platform} pcbios && initrd ${segmono_boot} segmono_boot.ttf || 
+iseq ${platform} efi && initrd -n segmono_boot.ttf ${segmono_boot} || 
+
+iseq ${platform} pcbios && initrd ${wgl4_boot} wgl4_boot.ttf ||  #bootres.dll和wgl4_boot.ttf负责出窗，其它三个负责旋转出水
+iseq ${platform} efi && initrd -n wgl4_boot.ttf ${wgl4_boot} ||  #bootres.dll和wgl4_boot.ttf负责出窗，其它三个负责旋转出水
+
+iseq ${platform} pcbios && initrd ${bootresdll} bootres.dll ||
+iseq ${platform efi && initrd -n bootres.dll ${bootresdll} ||
+
+cpair --foreground 2 0 && console --x ${x} -y ${y} --picture ${loading} --left 32 --right 32 --top 32 --bottom 48 || #loading
+iseq ${platform} pcbios && initrd ${bootwim} boot.wim ||
+iseq ${platform} efi && initrd -n boot.wim ${bootwim} ||
+boot ||
+prompt --key 0x02 --timeout 2000 Press Ctrl-B for the iPXE command line... && shell ||
