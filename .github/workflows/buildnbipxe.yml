@@ -1,0 +1,94 @@
+
+
+
+name: ipxe-build
+
+on:
+  push:
+    branches: 
+      - master
+  # schedule:
+  #   - cron: 0 20 * * *
+  # release:
+  #   types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Install packages
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt update
+          sudo apt install -y -o Acquire::Retries=50 \
+                           mtools syslinux isolinux \
+                           libc6-dev-i386 libc6-dbg:i386 valgrind    
+      - name: install mkisofs
+        run: |
+          sudo apt install mkisofs
+      - name: make for uefi with EMBED
+        run: |
+          rm -rf ./uefi-EMBED/
+          mkdir -p ./uefi-EMBED/
+          sh loadefi.sh
+          mv ./src/bin-x86_64-efi/*.efi ./uefi-EMBED/          
+      - name: make for uefi no EMBED
+        run: |
+          rm -rf ./uefi/
+          mkdir -p ./uefi/
+          sh uefi.sh
+          mv ./src/bin-x86_64-efi/*.efi ./uefi/      
+          mv ./src/bin-x86_64-efi/ipxe.efidrv ./uefi/  
+          mv ./src/bin-x86_64-linux/*.linux ./uefi/  
+          mv ./src/bin-x86_64-efi/ipxe.efirom ./uefi/     
+    
+      - name: make for legacybios with EMBED
+        run: |
+          rm -rf ./legacybios-EMBED/
+          mkdir -p ./legacybios-EMBED/
+          sh tinycorev2.sh
+          mv ./src/bin/undionly.*pxe ./legacybios-EMBED/ 
+          mv ./src/bin/ipxe.pxe ./legacybios-EMBED/
+          mv ./src/bin/ipxe.lkrn ./legacybios-EMBED/ 
+          mv ./src/bin/ipxe.usb ./legacybios-EMBED/ 
+          mv ./src/bin/ipxe.dsk ./legacybios-EMBED/
+          mv ./src/bin/ipxe.iso ./legacybios-EMBED/ 
+      
+      - name: make for legacybios no EMBED
+        run: |
+          rm -rf ./legacybios/
+          mkdir -p ./legacybios/
+          sh legacy.sh
+          mv ./src/bin/undionly.*pxe ./legacybios/
+          mv ./src/bin/ipxe.pxe ./legacybios/  
+          mv ./src/bin/ipxe.lkrn ./legacybios/ 
+          mv ./src/bin/ipxe.usb ./legacybios/ 
+          mv ./src/bin/ipxe.dsk ./legacybios/ 
+          mv ./src/bin/ipxe.iso ./legacybios/  
+                           
+      - name: upload release with EMBED
+        uses: marvinpinto/action-automatic-releases@latest
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "Latest"
+          prerelease: false
+          title: "Development Build legacybios and uefi [ipxe 的启动文件已嵌入脚本]"
+          files: |
+            ./legacybios-EMBED/*.*
+            ./uefi-EMBED/*.*
+     
+      - name: upload release no EMBED
+        uses: marvinpinto/action-automatic-releases@latest
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "Latest-default"
+          prerelease: false
+          title: "Development Build legacybios and uefi [ipxe 的启动文件未嵌入脚本]"
+          files: |
+            ./legacybios/*.*
+            ./uefi/*.*       
