@@ -25,7 +25,8 @@ jobs:
       - name: Merge upstream changes
         run: |
           git checkout master
-          git merge upstream/master --allow-unrelated-histories
+          git merge upstream/master --strategy=theirs
+
 
       - name: Push changes
         env:
