@@ -1,34 +1,70 @@
-name: Sync Fork with Upstream
+name: Force Sync Fork with Upstream
 
 on:
   schedule:
-    - cron: '0 7 * * 1,4'  # 每周一和周四的 UTC 时间 07:00 运行
-  workflow_dispatch:        # 允许手动触发
+    # Runs at 07:00 UTC on Monday and Thursday
+    # CRON Reference: https://crontab.guru/#0_7_*_*_1,4
+    - cron: '0 7 * * 1,4'
+  workflow_dispatch: # Allows manual triggering from the Actions tab
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    # Grant write permission to GITHUB_TOKEN for force pushing
+    permissions:
+      contents: write
     steps:
-      - name: Checkout the repository
-        uses: actions/checkout@v3
+      - name: Checkout the repository (fork)
+        uses: actions/checkout@v4
+        with:
+          # Check out the specific branch you want to sync (e.g., master)
+          ref: master
+          # Fetch all history so we can reset to the upstream commit
+          fetch-depth: 0
+          # Use a PAT instead of GITHUB_TOKEN if you need to trigger subsequent workflows
+          # token: ${{ secrets.YOUR_PAT }} # Optional: Use if GITHUB_TOKEN doesn't have sufficient permissions or trigger needs
 
-      - name: Set up Git
+      - name: Set up Git credentials
         run: |
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
 
-      - name: Add upstream remote
+      - name: Add upstream remote repository
         run: |
+          # Add the original repository as 'upstream'
+          # IMPORTANT: Make sure this URL is correct
           git remote add upstream https://github.com/ipxe/ipxe.git
-          git fetch upstream
+          echo "Fetching upstream..."
+          git fetch upstream --tags --prune --prune-tags
+          echo "Upstream fetch complete."
 
-      - name: Merge upstream changes
+      - name: Force reset local master to match upstream/master
         run: |
+          # Ensure we are on the correct branch locally
           git checkout master
-          git merge upstream/master --strategy=recursive --strategy-option=theirs || true
+          echo "Current HEAD before reset:"
+          git log -1 --oneline
+          echo "Resetting master to upstream/master..."
+          # THIS IS THE DESTRUCTIVE STEP:
+          # It makes your local 'master' identical to 'upstream/master', discarding any
+          # commits on your local 'master' that are not on 'upstream/master'.
+          git reset --hard upstream/master
+          echo "Current HEAD after reset:"
+          git log -1 --oneline
+          echo "Reset complete."
 
-      - name: Push changes
+      - name: Force push changes to fork (origin)
         env:
+          # The default GITHUB_TOKEN has write permissions scoped to the repository
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git push origin master
+          echo "Force pushing master to origin..."
+          # THIS IS THE SECOND DESTRUCTIVE STEP:
+          # It overwrites the 'master' branch on your GitHub fork (origin)
+          # with the state of your local 'master' branch after the hard reset.
+          # Use --force-with-lease for slightly safer force push, but --force is direct.
+          git push origin master --force
+          # Optional: Force push tags as well to mirror upstream exactly
+          # git push origin --tags --force
+          echo "Force push complete."
+
