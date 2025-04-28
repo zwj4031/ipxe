@@ -25,8 +25,7 @@ jobs:
       - name: Merge upstream changes
         run: |
           git checkout master
-          git merge upstream/master --strategy=theirs
-
+          git merge upstream/master --strategy=recursive --strategy-option=theirs || true
 
       - name: Push changes
         env:
