@@ -1,70 +1,96 @@
-name: Force Sync Fork with Upstream
+好的，明白了。如果你想在同步上游 (ipxe/ipxe) 的 master 分支时，保留你 Fork 仓库 (zwj4031/ipxe) master 分支上已有的、并且与上游有冲突的文件内容，同时合并上游的其他无冲突更改，那么你不应该使用 git reset --hard 或带有 --strategy-option=theirs 的 merge。
+
+你应该使用标准的 git merge，并且在遇到冲突时，使用 --strategy-option=ours 策略选项。这个选项告诉 Git：在合并过程中，如果遇到冲突，自动选择你当前所在分支（也就是你的 Fork 的 master 分支） 的版本来解决冲突。
+
+这样做的效果是：
+
+上游仓库 (ipxe/ipxe) 中新增的文件会被添加到你的 Fork 中。
+
+上游仓库中修改的、但在你的 Fork 中没有修改的文件，会被更新。
+
+上游仓库和你 Fork 都修改了的同一个文件（产生冲突）：你的 Fork 中的版本会被保留，上游的修改会被忽略（仅针对这个冲突文件）。
+
+你 Fork 中有、但上游没有的文件，会继续保留。
+
+修改后的完整 Workflow 代码：
+
+name: Sync Fork with Upstream (保留本地冲突修改)
 
 on:
   schedule:
-    # Runs at 07:00 UTC on Monday and Thursday
-    # CRON Reference: https://crontab.guru/#0_7_*_*_1,4
+    # Runs at 07:00 UTC on Monday and Thursday (每周一、周四 UTC 时间 7 点)
     - cron: '0 7 * * 1,4'
-  workflow_dispatch: # Allows manual triggering from the Actions tab
+  workflow_dispatch: # Allows manual triggering (允许手动触发)
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    # Grant write permission to GITHUB_TOKEN for force pushing
+    # 只需要 contents: write 权限即可进行普通推送
     permissions:
       contents: write
     steps:
-      - name: Checkout the repository (fork)
+      - name: Checkout the repository (fork) (检出你的仓库)
         uses: actions/checkout@v4
         with:
-          # Check out the specific branch you want to sync (e.g., master)
+          # 检出你想要同步的分支 (例如 master)
           ref: master
-          # Fetch all history so we can reset to the upstream commit
+          # 获取完整历史记录，以便进行合并
           fetch-depth: 0
-          # Use a PAT instead of GITHUB_TOKEN if you need to trigger subsequent workflows
-          # token: ${{ secrets.YOUR_PAT }} # Optional: Use if GITHUB_TOKEN doesn't have sufficient permissions or trigger needs
 
-      - name: Set up Git credentials
+      - name: Set up Git credentials (设置 Git 用户信息)
         run: |
           git config user.name "${{ github.actor }}"
           git config user.email "${{ github.actor }}@users.noreply.github.com"
 
-      - name: Add upstream remote repository
+      - name: Add upstream remote repository (添加上游仓库地址)
         run: |
-          # Add the original repository as 'upstream'
-          # IMPORTANT: Make sure this URL is correct
+          # 将原始仓库添加为 'upstream'
           git remote add upstream https://github.com/ipxe/ipxe.git
           echo "Fetching upstream..."
+          # 获取上游所有内容
           git fetch upstream --tags --prune --prune-tags
           echo "Upstream fetch complete."
 
-      - name: Force reset local master to match upstream/master
+      - name: Merge upstream changes (favoring local on conflict) (合并上游更改，冲突时保留本地版本)
         run: |
-          # Ensure we are on the correct branch locally
+          # 确保在 master 分支
           git checkout master
-          echo "Current HEAD before reset:"
-          git log -1 --oneline
-          echo "Resetting master to upstream/master..."
-          # THIS IS THE DESTRUCTIVE STEP:
-          # It makes your local 'master' identical to 'upstream/master', discarding any
-          # commits on your local 'master' that are not on 'upstream/master'.
-          git reset --hard upstream/master
-          echo "Current HEAD after reset:"
-          git log -1 --oneline
-          echo "Reset complete."
+          echo "Attempting to merge upstream/master with 'ours' strategy option..."
+          # 合并 upstream/master 到当前分支 (master)
+          # --strategy-option=ours: 如果出现冲突，自动选择我们本地 (master) 的版本。
+          # --no-ff: 即使可以快进合并，也创建一个合并提交，方便追踪同步历史。
+          # || true: 即使合并命令因为 "Already up to date" 等原因退出码非 0，也让步骤继续执行。
+          git merge upstream/master --strategy=recursive --strategy-option=ours --no-ff -m "Merge upstream changes (favoring local on conflict)" || true
+          echo "Merge attempt finished."
 
-      - name: Force push changes to fork (origin)
+      - name: Push changes back to fork (origin) (推送更改回你的 Fork 仓库)
         env:
-          # The default GITHUB_TOKEN has write permissions scoped to the repository
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Force pushing master to origin..."
-          # THIS IS THE SECOND DESTRUCTIVE STEP:
-          # It overwrites the 'master' branch on your GitHub fork (origin)
-          # with the state of your local 'master' branch after the hard reset.
-          # Use --force-with-lease for slightly safer force push, but --force is direct.
-          git push origin master --force
-          # Optional: Force push tags as well to mirror upstream exactly
-          # git push origin --tags --force
-          echo "Force push complete."
+          # 正常推送本地 master 分支的更改到 origin (你的 Fork)
+          # 这里不需要 --force，因为我们是创建了一个新的合并提交
+          git push origin master
+          # 可选：如果你想同步标签（注意：这可能会推送新的合并标签，但不会强制覆盖）
+          # git push origin --tags
+          echo "Push complete."
 
+
+关键修改点：
+
+Merge 命令:
+
+使用了 git merge upstream/master --strategy=recursive --strategy-option=ours。
+
+添加了 --no-ff 标志，这样即使没有冲突并且可以快进合并，也会生成一个明确的合并记录（Merge Commit），表明进行了一次同步操作。
+
+保留了 || true，以防 "Already up to date"（已经最新）或其他非致命合并情况导致工作流失败。
+
+更新了合并提交信息 -m "Merge upstream changes (favoring local on conflict)" 以反映策略。
+
+Push 命令:
+
+改回了标准的 git push origin master，不再使用 --force。因为 --strategy-option=ours 的合并是在你现有历史的基础上添加一个新的合并提交，这是一个正常的、可快进的推送（除非在你运行 Action 期间有其他人向你的 master 推送了代码，这种情况比较少见）。
+
+总结：
+
+这个版本的 Workflow 会尝试将上游 ipxe/ipxe 的 master 分支合并到你的 zwj4031/ipxe 的 master 分支。它会引入上游所有无冲突的更改和新文件，但如果某个文件在你和上游都被修改了，它会保留你的版本，并自动解决这个冲突。这能达到“保留仓库原有（冲突）文件”同时更新其他内容的目的。
