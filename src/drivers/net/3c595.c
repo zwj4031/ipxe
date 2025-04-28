@@ -342,8 +342,7 @@ eeprom_rdy()
  * before
  */
 static int
-get_e(offset)
-int offset;
+get_e(int offset)
 {
 	if (!eeprom_rdy())
 		return (0xffff);
@@ -444,7 +443,7 @@ vxsetlink(void)
     GO_WINDOW(1); 
 }
 
-static void t595_disable ( struct nic *nic ) {
+static void t595_disable ( struct nic *nic, void *hwdev __unused ) {
 
 	t595_reset(nic);
 
