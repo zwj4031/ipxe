@@ -1,19 +1,3 @@
-好的，明白了。如果你想在同步上游 (ipxe/ipxe) 的 master 分支时，保留你 Fork 仓库 (zwj4031/ipxe) master 分支上已有的、并且与上游有冲突的文件内容，同时合并上游的其他无冲突更改，那么你不应该使用 git reset --hard 或带有 --strategy-option=theirs 的 merge。
-
-你应该使用标准的 git merge，并且在遇到冲突时，使用 --strategy-option=ours 策略选项。这个选项告诉 Git：在合并过程中，如果遇到冲突，自动选择你当前所在分支（也就是你的 Fork 的 master 分支） 的版本来解决冲突。
-
-这样做的效果是：
-
-上游仓库 (ipxe/ipxe) 中新增的文件会被添加到你的 Fork 中。
-
-上游仓库中修改的、但在你的 Fork 中没有修改的文件，会被更新。
-
-上游仓库和你 Fork 都修改了的同一个文件（产生冲突）：你的 Fork 中的版本会被保留，上游的修改会被忽略（仅针对这个冲突文件）。
-
-你 Fork 中有、但上游没有的文件，会继续保留。
-
-修改后的完整 Workflow 代码：
-
 name: Sync Fork with Upstream (保留本地冲突修改)
 
 on:
@@ -73,24 +57,3 @@ jobs:
           # 可选：如果你想同步标签（注意：这可能会推送新的合并标签，但不会强制覆盖）
           # git push origin --tags
           echo "Push complete."
-
-
-关键修改点：
-
-Merge 命令:
-
-使用了 git merge upstream/master --strategy=recursive --strategy-option=ours。
-
-添加了 --no-ff 标志，这样即使没有冲突并且可以快进合并，也会生成一个明确的合并记录（Merge Commit），表明进行了一次同步操作。
-
-保留了 || true，以防 "Already up to date"（已经最新）或其他非致命合并情况导致工作流失败。
-
-更新了合并提交信息 -m "Merge upstream changes (favoring local on conflict)" 以反映策略。
-
-Push 命令:
-
-改回了标准的 git push origin master，不再使用 --force。因为 --strategy-option=ours 的合并是在你现有历史的基础上添加一个新的合并提交，这是一个正常的、可快进的推送（除非在你运行 Action 期间有其他人向你的 master 推送了代码，这种情况比较少见）。
-
-总结：
-
-这个版本的 Workflow 会尝试将上游 ipxe/ipxe 的 master 分支合并到你的 zwj4031/ipxe 的 master 分支。它会引入上游所有无冲突的更改和新文件，但如果某个文件在你和上游都被修改了，它会保留你的版本，并自动解决这个冲突。这能达到“保留仓库原有（冲突）文件”同时更新其他内容的目的。
