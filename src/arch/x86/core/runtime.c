@@ -32,6 +32,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <ctype.h>
 #include <errno.h>
 #include <assert.h>
@@ -69,6 +70,7 @@ static void cmdline_image_free ( struct refcnt *refcnt ) {
 	struct image *image = container_of ( refcnt, struct image, refcnt );
 
 	DBGC ( image, "RUNTIME freeing command line\n" );
+	free_image ( refcnt );
 	free ( cmdline_copy );
 }
 
@@ -76,6 +78,7 @@ static void cmdline_image_free ( struct refcnt *refcnt ) {
 static struct image cmdline_image = {
 	.refcnt = REF_INIT ( cmdline_image_free ),
 	.name = "<CMDLINE>",
+	.flags = ( IMAGE_STATIC | IMAGE_STATIC_NAME ),
 	.type = &script_image_type,
 };
 

@@ -21,6 +21,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 
 #include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 #include <wchar.h>
 #include <ipxe/efi/efi.h>
 #include <ipxe/efi/efi_snp.h>
@@ -242,10 +243,15 @@ static int efi_image_exec ( struct image *image ) {
 		goto err_shim_install;
 	}
 
-	/* Attempt loading image */
+	/* Attempt loading image
+	 *
+	 * LoadImage() does not (allegedly) modify the image content,
+	 * but requires a non-const pointer to SourceBuffer.  We
+	 * therefore use the .rwdata field rather than .data.
+	 */
 	handle = NULL;
 	if ( ( efirc = bs->LoadImage ( FALSE, efi_image_handle, path,
-				       exec->data, exec->len,
+				       exec->rwdata, exec->len,
 				       &handle ) ) != 0 ) {
 		/* Not an EFI image */
 		rc = -EEFI_LOAD ( efirc );
@@ -376,10 +382,15 @@ static int efi_image_probe ( struct image *image ) {
 	EFI_STATUS efirc;
 	int rc;
 
-	/* Attempt loading image */
+	/* Attempt loading image
+	 *
+	 * LoadImage() does not (allegedly) modify the image content,
+	 * but requires a non-const pointer to SourceBuffer.  We
+	 * therefore use the .rwdata field rather than .data.
+	 */
 	handle = NULL;
 	if ( ( efirc = bs->LoadImage ( FALSE, efi_image_handle, &empty_path,
-				       image->data, image->len,
+				       image->rwdata, image->len,
 				       &handle ) ) != 0 ) {
 		/* Not an EFI image */
 		rc = -EEFI_LOAD ( efirc );
