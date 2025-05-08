@@ -32,14 +32,202 @@
 	.section ".note.GNU-stack", "", @progbits
 	.text
 
+	/* Virtual address of _prefix
+	 *
+	 * This will be updated if runtime relocations are applied.
+	 */
+	.section ".rodata.prefix_virt", "a", @progbits
+prefix_virt:
+	.dword	_prefix
+	.size	prefix_virt, . - prefix_virt
+
+	/* Current virtual address offset */
+	.section ".data.virt_offset", "aw", @progbits
+	.globl	virt_offset
+virt_offset:
+	.space	( __riscv_xlen / 8 )
+	.size	virt_offset, . - virt_offset
+
 /*****************************************************************************
  *
- * Apply relocation records
+ * Print message to debug console
  *
  *****************************************************************************
  *
- * Apply relocation records from .rel.dyn to fix up iPXE to run at its
- * current address.
+ * Print a NUL-terminated string to the debug console.
+ *
+ * This function prints one character at a time via the "write byte"
+ * call (rather than using "write string"), since this avoids any need
+ * to know the current virtual-physical address translation.  It does
+ * not require a valid stack.
+ *
+ * Note that the parameter is passed in register t1 (rather than a0)
+ * and all non-temporary registers are preserved.
+ *
+ * Parameters:
+ *
+ *   t1 - Pointer to string
+ *
+ * Returns: none
+ *
+ */
+
+/* SBI debug console extension */
+#define SBI_DBCN ( ( 'D' << 24 ) | ( 'B' << 16 ) | ( 'C' << 8 ) | 'N' )
+#define SBI_DBCN_WRITE_BYTE 0x02
+
+	.section ".prefix.print_message", "ax", @progbits
+	.globl	print_message
+print_message:
+	/* Handle alternate link register */
+	mv	t0, ra
+print_message_alt:
+	/* Register usage:
+	 *
+	 * a0 - current character
+	 * t0 - alternate link register
+	 * t1 - character pointer
+	 * t2 - preserved a0
+	 * t3 - preserved a1
+	 * t4 - preserved a6
+	 * t5 - preserved a7
+	 */
+	mv	t2, a0
+	mv	t3, a1
+	mv	t4, a6
+	mv	t5, a7
+
+1:	/* Print each character in turn */
+	lbu	a0, (t1)
+	addi	t1, t1, 1
+	beqz	a0, 2f
+	li	a7, SBI_DBCN
+	li	a6, SBI_DBCN_WRITE_BYTE
+	ecall
+	j	1b
+2:
+	/* Restore registers and return (via alternate link register) */
+	mv	a7, t5
+	mv	a6, t4
+	mv	a1, t3
+	mv	a0, t2
+	jr	t0
+	.size	print_message, . - print_message
+
+	/*
+	 * Display progress message (if debugging is enabled)
+	 */
+	.macro	progress message
+#ifndef NDEBUG
+	.section ".rodata.progress_\@", "a", @progbits
+progress_\@:
+	.asciz	"\message"
+	.size	progress_\@, . - progress_\@
+	.previous
+	la	t1, progress_\@
+	jal	t0, print_message_alt
+#endif
+	.endm
+
+/*****************************************************************************
+ *
+ * Print hexadecimal value to debug console
+ *
+ *****************************************************************************
+ *
+ * Print a register value in hexadecimal to the debug console.
+ *
+ * This function does not require a valid stack.
+ *
+ * Note that the parameters are passed in registers t1 and t2 (rather
+ * than a0) and all non-temporary registers are preserved.
+ *
+ * Parameters:
+ *
+ *   t1 - Value to print
+ *   t2 - Number of bits to print (must be a multiple of 4)
+ *
+ * Returns: none
+ *
+ */
+	.section ".prefix.print_hex_value", "ax", @progbits
+	.globl	print_hex_value
+print_hex_value:
+	/* Handle alternate link register */
+	mv	t0, ra
+print_hex_value_alt:
+	/* Register usage:
+	 *
+	 * a0 - current digit / general temporary
+	 * t0 - alternate link register
+	 * t1 - current value
+	 * t2 - digit counter
+	 * t3 - preserved a0
+	 * t4 - preserved a1
+	 * t5 - preserved a6
+	 * t6 - preserved a7
+	 */
+	mv	t3, a0
+	mv	t4, a1
+	mv	t5, a6
+	mv	t6, a7
+
+	/* Skip any unprinted digits */
+	li	a0, __riscv_xlen
+	sub	a0, a0, t2
+	sll	t1, t1, a0
+
+1:	/* Print each digit in turn */
+	srli	a0, t1, ( __riscv_xlen - 4 )
+	addi	a0, a0, -10
+	bltz	a0, 2f
+	addi	a0, a0, ( 'a' - ( '0' + 10 ) )
+2:	addi	a0, a0, ( '0' + 10 )
+	li	a7, SBI_DBCN
+	li	a6, SBI_DBCN_WRITE_BYTE
+	ecall
+	slli	t1, t1, 4
+	addi	t2, t2, -4
+	bgtz	t2, 1b
+
+	/* Restore registers and return (via alternate link register) */
+	mv	a7, t6
+	mv	a6, t5
+	mv	a1, t4
+	mv	a0, t3
+	jr	t0
+	.size	print_hex_value, . - print_hex_value
+
+	/*
+	 * Display hexadecimal register value (if debugging is enabled)
+	 */
+	.macro	print_hex_reg reg, bits=__riscv_xlen
+#ifndef NDEBUG
+	mv	t1, \reg
+	li	t2, \bits
+	jal	t0, print_hex_value_alt
+#endif
+	.endm
+
+	/*
+	 * Display hexadecimal symbol address (if debugging is enabled)
+	 */
+	.macro	print_hex_addr sym
+#ifndef NDEBUG
+	la	t1, \sym
+	li	t2, __riscv_xlen
+	jal	t0, print_hex_value_alt
+#endif
+	.endm
+
+/*****************************************************************************
+ *
+ * Apply compressed relocation records
+ *
+ *****************************************************************************
+ *
+ * Apply compressed relocation records to fix up iPXE to run at its
+ * current virtual address.
  *
  * This function must run before .bss is zeroed (since the relocation
  * records are overlaid with .bss).  It does not require a valid stack
@@ -51,57 +239,63 @@
  *
  */
 
-/* Relative relocation type */
-#define R_RISCV_RELATIVE 3
-
-	/* Layout of a relocation record */
-	.struct 0
-rela_offset:	.space ( __riscv_xlen / 8 )
-rela_type:	.space ( __riscv_xlen / 8 )
-rela_addend:	.space ( __riscv_xlen / 8 )
-rela_len:
-	.previous
+/** Number of bits in a skip value */
+#define ZREL_SKIP_BITS 19
 
 	.section ".prefix.apply_relocs", "ax", @progbits
 	.globl	apply_relocs
 apply_relocs:
+	/* Register usage:
+	 *
+	 * a0 - relocation addend
+	 * a1 - current relocation target address
+	 * a2 - current relocation record pointer
+	 * a3 - current relocation record value
+	 * a4 - number of bits remaining in current relocation record
+	 */
+	la	a1, _prefix
+	la	a2, _edata
 
-	/* Get relocation records */
-	la	t0, _reloc
-	la	t1, _ereloc
+	/* Calculate relocation addend */
+	la	t0, prefix_virt
+	LOADN	a0, (t0)
+	sub	a0, a1, a0
 
-	/* Determine current location */
-	la	t2, reloc_base
-	LOADN	t2, (t2)
-	sub	t2, t0, t2
+	/* Skip applying relocations if addend is zero */
+	beqz	a0, apply_relocs_done
+	progress " reloc"
 
-1:	/* Read relocation record */
-	LOADN	t3, rela_offset(t0)
-	LOADN	t4, rela_type(t0)
-	LOADN	t5, rela_addend(t0)
+apply_relocs_loop:
+	/* Read new relocation record */
+	LOADN	a3, (a2)
+	addi	a2, a2, ( __riscv_xlen / 8 )
+	li	a4, ( __riscv_xlen - 1 )
 
-	/* Check relocation type */
-	addi	t4, t4, -R_RISCV_RELATIVE
-	bnez	t4, 2f
+	/* Consume and apply skip, if present (i.e. if MSB=0) */
+	bltz	a3, 1f
+	addi	a4, a4, -ZREL_SKIP_BITS
+	srli	t0, a3, ( __riscv_xlen - ( ZREL_SKIP_BITS + 1 ) )
+	slli	t0, t0, ( ( __riscv_xlen / 32 ) + 1 )
+	add	a1, a1, t0
+1:
+	/* Apply relocations corresponding to set bits in record */
+1:	andi	t0, a3, 1
+	beqz	t0, 2f
+	LOADN	t1, (a1)
+	add	t1, t1, a0
+	STOREN	t1, (a1)
+2:	addi	a1, a1, ( __riscv_xlen / 8 )
+	srli	a3, a3, 1
+	addi	a4, a4, -1
+	bnez	a4, 1b
 
-	/* Apply relocation */
-	add	t3, t3, t2
-	add	t5, t5, t2
-	STOREN	t5, (t3)
-2:
-	/* Loop until done */
-	addi	t0, t0, rela_len
-	blt	t0, t1, 1b
+	/* Loop until we have reached a terminator record (MSB=0, offset=0) */
+	bnez	a3, apply_relocs_loop
 
+apply_relocs_done:
 	/* Return to caller */
 	ret
 	.size	apply_relocs, . - apply_relocs
-
-	/* Link-time address of _reloc */
-	.section ".rodata", "a", @progbits
-reloc_base:
-	.dword	_reloc_base
-	.size	reloc_base, . - reloc_base
 
 /*****************************************************************************
  *
@@ -187,11 +381,32 @@ reloc_base:
 	.globl	enable_paging
 	.equ	enable_paging, _C2 ( enable_paging_, __riscv_xlen )
 
-	/* Link-time address of _prefix */
-	.section ".rodata.prefix_virt", "a", @progbits
-prefix_virt:
-	.dword	_prefix
-	.size	prefix_virt, . - prefix_virt
+	/* Paging mode names (for debug messages) */
+	.section ".rodata.paging_mode_names", "a", @progbits
+paging_mode_names:
+	.asciz	"none"
+	.org	( paging_mode_names + 5 * SATP_MODE_SV32 )
+	.asciz	"Sv32"
+	.org	( paging_mode_names + 5 * SATP_MODE_SV39 )
+	.asciz	"Sv39"
+	.org	( paging_mode_names + 5 * SATP_MODE_SV48 )
+	.asciz	"Sv48"
+	.org	( paging_mode_names + 5 * SATP_MODE_SV57 )
+	.asciz	"Sv57"
+	.size	paging_mode_names, . - paging_mode_names
+
+	/*
+	 * Display paging mode name (if debugging is enabled)
+	 */
+	.macro	paging_mode_name reg
+#ifndef NDEBUG
+	slli	t0, \reg, 2
+	add	t0, t0, \reg
+	la	t1, paging_mode_names
+	add	t1, t1, t0
+	jal	t0, print_message_alt
+#endif
+	.endm
 
 /*****************************************************************************
  *
@@ -280,6 +495,7 @@ enable_paging_64:
 	 * a3 - PTE pointer
 	 * a4 - PTE stride
 	 */
+	progress " paging:"
 	mv	a2, a0
 	li	a1, SATP_MODE_SV57
 enable_paging_64_loop:
@@ -372,6 +588,7 @@ enable_paging_64_loop:
 
 enable_paging_64_done:
 	/* Return, with or without paging enabled */
+	paging_mode_name a0
 	ret
 	.size	enable_paging_64, . - enable_paging_64
 
@@ -421,6 +638,7 @@ enable_paging_32:
 	 * a3 - PTE pointer
 	 * a4 - saved content of temporarily modified PTE
 	 */
+	progress " paging:"
 	mv	a2, a0
 
 	/* Calculate virtual address offset */
@@ -482,9 +700,52 @@ enable_paging_32_xstart:
 
 enable_paging_32_done:
 	/* Return, with or without paging enabled */
+	paging_mode_name a0
 	ret
 	.size	enable_paging_32, . - enable_paging_32
 
 	/* Ensure that transition code did not cross an alignment boundary */
 	.section ".bss.enable_paging_32_xcheck", "aw", @nobits
 	.org	. + enable_paging_32_xalign - enable_paging_32_xlen
+
+/*****************************************************************************
+ *
+ * Reset (or lock up) system
+ *
+ *****************************************************************************
+ *
+ * Reset via system via SBI, as a means of exiting from a prefix that
+ * has no other defined exit path.  If the reset fails, lock up the
+ * system since there is nothing else that can sensibly be done.
+ *
+ * This function does not require a valid stack pointer.
+ *
+ * Parameters: none
+ *
+ * Returns: n/a (does not return)
+ *
+ */
+
+/* SBI system reset extension */
+#define SBI_SRST ( ( 'S' << 24 ) | ( 'R' << 16 ) | ( 'S' << 8 ) | 'T' )
+#define SBI_SRST_SYSTEM_RESET 0x00
+#define SBI_RESET_COLD 0x00000001
+
+	.section ".prefix.reset_system", "ax", @progbits
+	.globl	reset_system
+reset_system:
+	/* Register usage: irrelevant (does not return) */
+	progress "\niPXE->SBI reset\n"
+
+	/* Attempt reset */
+	li	a7, SBI_SRST
+	li	a6, SBI_SRST_SYSTEM_RESET
+	li	a0, SBI_RESET_COLD
+	mv	a1, zero
+	ecall
+
+	/* If reset failed, lock the system */
+	progress "(reset failed)\n"
+1:	wfi
+	j	1b
+	.size	reset_system, . - reset_system

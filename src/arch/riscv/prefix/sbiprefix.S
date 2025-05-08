@@ -32,32 +32,21 @@
 	.section ".note.GNU-stack", "", @progbits
 	.text
 
-/* SBI debug console extension */
-#define SBI_DBCN ( ( 'D' << 24 ) | ( 'B' << 16 ) | ( 'C' << 8 ) | 'N' )
-#define SBI_DBCN_WRITE 0x00
-
-/* SBI system reset extension */
-#define SBI_SRST ( ( 'S' << 24 ) | ( 'R' << 16 ) | ( 'S' << 8 ) | 'T' )
-#define SBI_SRST_SYSTEM_RESET 0x00
-#define SBI_RESET_COLD 0x00000001
+/* ELF machine type */
+#define EM_RISCV 243
 
 	/*
 	 * Display progress message via debug console
 	 */
 	.macro	progress message
 #ifndef NDEBUG
-	.section ".prefix.data", "aw", @progbits
+	.section ".rodata.progress_\@", "a", @progbits
 progress_\@:
-	.ascii	"\message"
-	.equ	progress_\@_len, . - progress_\@
+	.asciz	"\message"
 	.size	progress_\@, . - progress_\@
 	.previous
-	li	a7, SBI_DBCN
-	li	a6, SBI_DBCN_WRITE
-	li	a0, progress_\@_len
-	la	a1, progress_\@
-	mv	a2, zero
-	ecall
+	la	t1, progress_\@
+	call	print_message
 #endif
 	.endm
 
@@ -110,22 +99,19 @@ _sbi_start:
 	 * Attempt a system reset, since there is nothing else we can
 	 * viably do at this point.
 	 */
-	progress "\niPXE->SBI reset\n"
-	li	a7, SBI_SRST
-	li	a6, SBI_SRST_SYSTEM_RESET
-	li	a0, SBI_RESET_COLD
-	mv	a1, zero
-	ecall
-
-	/* If reset failed, lock the system */
-	progress "(reset failed)\n"
-1:	wfi
-	j	1b
+	j	reset_system
 	.size	_sbi_start, . - _sbi_start
 
 	/* File split information for the compressor */
 	.section ".zinfo", "a", @progbits
 	.ascii	"COPY"
 	.word	0
-	.word	_sbi_filesz
+	.word	_filesz
 	.word	1
+	.ascii	"BASE"
+	.word	0
+	.dword	_base
+	.ascii	"ZREL"
+	.word	_reloc_offset
+	.word	_reloc_filesz
+	.word	EM_RISCV
