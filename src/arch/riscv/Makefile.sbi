@@ -14,3 +14,11 @@ LDSCRIPT	= arch/riscv/scripts/sbi.lds
 # Media types
 #
 MEDIA		+= sbi
+MEDIA		+= lkrn
+
+# Padded flash device images (e.g. for QEMU's -pflash option)
+#
+NON_AUTO_MEDIA	+= pf32
+%.pf32 : %.sbi $(MAKEDEPS)
+	$(Q)$(CP) $< $@
+	$(Q)$(TRUNCATE) -s 32M $@

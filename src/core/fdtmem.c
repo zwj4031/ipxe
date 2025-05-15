@@ -41,16 +41,15 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 /** Start address of the iPXE image */
 extern char _prefix[];
 
-/** In-memory size of the iPXE image (defined by linker) */
-extern size_t ABS_SYMBOL ( _memsz );
-static size_t memsz = ABS_VALUE_INIT ( _memsz );
+/** End address of the iPXE image */
+extern char _end[];
 
 /** Relocation required alignment (defined by prefix or linker) */
 extern physaddr_t ABS_SYMBOL ( _max_align );
 static physaddr_t max_align = ABS_VALUE_INIT ( _max_align );
 
 /** Colour for debug messages */
-#define colour &memsz
+#define colour &_prefix[0]
 
 /** A memory region descriptor */
 struct fdtmem_region {
@@ -66,6 +65,9 @@ struct fdtmem_region {
 
 /** Region is usable as RAM */
 #define FDTMEM_RAM 0x0001
+
+/** Size of accessible physical address space (or zero for no limit) */
+static size_t fdtmem_limit;
 
 /**
  * Update memory region descriptor
@@ -274,6 +276,7 @@ physaddr_t fdtmem_relocate ( struct fdt_header *hdr, size_t limit ) {
 	physaddr_t old;
 	physaddr_t new;
 	physaddr_t try;
+	size_t memsz;
 	size_t len;
 	int rc;
 
@@ -292,9 +295,9 @@ physaddr_t fdtmem_relocate ( struct fdt_header *hdr, size_t limit ) {
 	}
 
 	/* Determine required length */
+	memsz = ( _end - _prefix );
 	assert ( memsz > 0 );
 	assert ( ( memsz % FDT_MAX_ALIGN ) == 0 );
-	assert ( ( fdt.len % FDT_MAX_ALIGN ) == 0 );
 	len = ( memsz + fdt.len );
 	assert ( len > 0 );
 	DBGC ( colour, "FDTMEM requires %#zx + %#zx => %#zx bytes for "
@@ -354,4 +357,40 @@ physaddr_t fdtmem_relocate ( struct fdt_header *hdr, size_t limit ) {
 	DBGC ( colour, "FDTMEM relocating %#08lx => [%#08lx,%#08lx]\n",
 	       old, new, ( ( physaddr_t ) ( new + len - 1 ) ) );
 	return new;
+}
+
+/**
+ * Copy and register system device tree
+ *
+ * @v hdr		FDT header
+ * @v limit		Size of accessible physical address space (or zero)
+ * @ret rc		Return status code
+ */
+int fdtmem_register ( struct fdt_header *hdr, size_t limit ) {
+	struct fdt_header *copy;
+	struct fdt fdt;
+	int rc;
+
+	/* Record size of accessible physical address space */
+	fdtmem_limit = limit;
+
+	/* Parse FDT to obtain length */
+	if ( ( rc = fdt_parse ( &fdt, hdr, -1UL ) ) != 0 ) {
+		DBGC ( colour, "FDTMEM could not parse FDT: %s\n",
+		       strerror ( rc ) );
+		return rc;
+	}
+
+	/* Copy device tree to end of iPXE image */
+	copy = ( ( void * ) _end );
+	memcpy ( copy, hdr, fdt.len );
+
+	/* Register copy as system device tree */
+	if ( ( rc = fdt_parse ( &sysfdt, copy, -1UL ) ) != 0 ) {
+		DBGC ( colour, "FDTMEM could not register FDT: %s\n",
+		       strerror ( rc ) );
+		return rc;
+	}
+
+	return 0;
 }
