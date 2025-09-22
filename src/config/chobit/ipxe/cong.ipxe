@@ -1,0 +1,68 @@
+#!ipxe
+set efi loadefi
+ifopen net0
+ifstat
+   set menu-timeout 5000
+   set menu-default proxydhcp
+:boot
+prompt --key 0x02 --timeout 2000 Press Ctrl-B for the iPXE command line... && shell ||
+chain file:/app/config/${efi} || goto netboot
+
+:netboot
+dhcp
+set serverip ${next-server} && chain tftp://${serverip}/app/config/${efi} ||
+set serverip ${proxydhcp/next-server} && chain tftp://${serverip}/app/config/${efi} ||
+goto start
+
+:menu
+isset ${ip} || dhcp 
+goto start
+
+:start
+  menu Choose An Existing Server!  Serverip:${serverip}  bootfile: ${efi}
+  item --gap --             --------------------------------PXE BOOT-----------------------------
+  item nextserver           ${next-server}
+  item proxydhcp            ${proxydhcp/next-server}
+ 
+
+  item --gap --             ---------------------------- Advanced options -----------------------
+  item --key c config       Configure settings                                   -- c
+  item --key p pxelinux     Load PXELinux menu                                   -- p
+  item shell                Drop to iPXE shell
+  item reboot               Reboot computer
+  item --key x exit         Exit iPXE and continue BIOS boot                     -- x
+  choose --timeout ${menu-timeout} --default ${menu-default} selected
+  goto ${selected}
+
+:nextdhcp
+set serverip ${next-server} 
+chain tftp://${serverip}/app/config/${efi} || goto retry
+
+:proxydhcp
+set serverip ${proxydhcp/next-server}
+chain tftp://${serverip}/app/config/${efi} || goto retry
+
+:retry
+echo set Filename 
+read efi 
+ set menu-default proxydhcp
+goto start
+
+:shell
+  echo Type 'exit' to get the back to the menu
+  shell
+  goto start
+
+:failed
+  echo Booting failed, dropping to shell
+  goto shell
+
+:reboot
+  reboot
+
+:exit
+  exit
+
+:config
+  config
+  goto start

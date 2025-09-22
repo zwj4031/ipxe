@@ -1,0 +1,59 @@
+name: Sync Fork with Upstream (保留本地冲突修改)
+
+on:
+  schedule:
+    # Runs at 07:00 UTC on Monday and Thursday (每周一、周四 UTC 时间 7 点)
+    - cron: '0 7 * * 1,4'
+  workflow_dispatch: # Allows manual triggering (允许手动触发)
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # 只需要 contents: write 权限即可进行普通推送
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the repository (fork) (检出你的仓库)
+        uses: actions/checkout@v4
+        with:
+          # 检出你想要同步的分支 (例如 master)
+          ref: master
+          # 获取完整历史记录，以便进行合并
+          fetch-depth: 0
+
+      - name: Set up Git credentials (设置 Git 用户信息)
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Add upstream remote repository (添加上游仓库地址)
+        run: |
+          # 将原始仓库添加为 'upstream'
+          git remote add upstream https://github.com/ipxe/ipxe.git
+          echo "Fetching upstream..."
+          # 获取上游所有内容
+          git fetch upstream --tags --prune --prune-tags
+          echo "Upstream fetch complete."
+
+      - name: Merge upstream changes (favoring local on conflict) (合并上游更改，冲突时保留本地版本)
+        run: |
+          # 确保在 master 分支
+          git checkout master
+          echo "Attempting to merge upstream/master with 'ours' strategy option..."
+          # 合并 upstream/master 到当前分支 (master)
+          # --strategy-option=ours: 如果出现冲突，自动选择我们本地 (master) 的版本。
+          # --no-ff: 即使可以快进合并，也创建一个合并提交，方便追踪同步历史。
+          # || true: 即使合并命令因为 "Already up to date" 等原因退出码非 0，也让步骤继续执行。
+          git merge upstream/master --strategy=recursive --strategy-option=ours --no-ff -m "Merge upstream changes (favoring local on conflict)" || true
+          echo "Merge attempt finished."
+
+      - name: Push changes back to fork (origin) (推送更改回你的 Fork 仓库)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 正常推送本地 master 分支的更改到 origin (你的 Fork)
+          # 这里不需要 --force，因为我们是创建了一个新的合并提交
+          git push origin master
+          # 可选：如果你想同步标签（注意：这可能会推送新的合并标签，但不会强制覆盖）
+          # git push origin --tags
+          echo "Push complete."

@@ -1,0 +1,151 @@
+name: ipxe-build (FINAL FIX v3)
+
+on:
+  push:
+    branches: 
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Install build dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git mtools syslinux isolinux \
+            libc6-dev-i386 liblzma-dev dosfstools grub-common \
+            gcc-multilib genisoimage
+
+      - name: (ROBUST) Generate and verify version info
+        id: version
+        run: |
+          # 极其健壮的版本号生成脚本
+          set -x
+          DESCRIBE=$(git describe --tags --long --always --dirty 2>/dev/null || echo "v0.0.0-0-g${GITHUB_SHA}")
+          VERSION_MAJOR=$(echo "$DESCRIBE" | cut -d. -f1 | sed 's/[^0-9]//g' | awk '{print $1+0}'); : ${VERSION_MAJOR:=0}
+          VERSION_MINOR=$(echo "$DESCRIBE" | cut -d. -f2 | sed 's/[^0-9]//g' | awk '{print $1+0}'); : ${VERSION_MINOR:=0}
+          VERSION_PATCH=$(echo "$DESCRIBE" | cut -d. -f3 | cut -d- -f1 | sed 's/[^0-9]//g' | awk '{print $1+0}'); : ${VERSION_PATCH:=0}
+          if [[ "$VERSION_MAJOR" -gt 255 ]]; then VERSION_MAJOR=0; fi
+          if [[ "$VERSION_MINOR" -gt 255 ]]; then VERSION_MINOR=0; fi
+          if [[ "$VERSION_PATCH" -gt 255 ]]; then VERSION_PATCH=0; fi
+          SHORT_HASH=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          BUILD_NUM=${GITHUB_RUN_NUMBER:-0}
+          VERSION_EXTRA="-g${SHORT_HASH}-build${BUILD_NUM}"
+          echo "VERSION_MAJOR=${VERSION_MAJOR}" >> $GITHUB_ENV
+          echo "VERSION_MINOR=${VERSION_MINOR}" >> $GITHUB_ENV
+          echo "VERSION_PATCH=${VERSION_PATCH}" >> $GITHUB_ENV
+          echo "VERSION_EXTRA=${VERSION_EXTRA}" >> $GITHUB_ENV
+          set +x
+
+      - name: (CRITICAL STEP) Disable Makefile auto-versioning
+        run: rm -rf .git
+
+      - name: Build UEFI with Embedded Script
+        run: |
+          echo "--- Building UEFI targets with embedded script (loadefi.sh logic) ---"
+          make -C src/ -j8 bin-x86_64-efi/ipxe.efi bin-x86_64-efi/snponly.efi \
+               EMBED=ipxeboot.ipxe \
+               CONFIG=config/console-efi.h,config/general-efi.h,config/branding-efi.h \
+               VERSION_MAJOR=${{ env.VERSION_MAJOR }} VERSION_MINOR=${{ env.VERSION_MINOR }} VERSION_PATCH=${{ env.VERSION_PATCH }} VERSION_PATCH_EXTRA="${{ env.VERSION_EXTRA }}"
+          
+          echo "Moving artifacts to ./uefi-EMBED/"
+          mkdir -p ./uefi-EMBED/
+          # 【修复】精确移动，不再使用 *
+          mv src/bin-x86_64-efi/ipxe.efi ./uefi-EMBED/
+          mv src/bin-x86_64-efi/snponly.efi ./uefi-EMBED/
+          make -C src/ clean
+
+      - name: Build UEFI (Default) and Linux Tests
+        run: |
+          echo "--- Building UEFI default targets (uefi.sh logic) ---"
+          make -C src/ -j8 bin-x86_64-efi/ipxe.efi bin-x86_64-efi/ipxe.efidrv bin-x86_64-efi/ipxe.efirom \
+               EMBED=autoboot.ipxe \
+               CONFIG=config/console-efi.h,config/general-efi.h,config/branding-efi.h \
+               VERSION_MAJOR=${{ env.VERSION_MAJOR }} VERSION_MINOR=${{ env.VERSION_MINOR }} VERSION_PATCH=${{ env.VERSION_PATCH }} VERSION_PATCH_EXTRA="${{ env.VERSION_EXTRA }}"
+
+          echo "--- Building Linux test targets (uefi.sh logic) ---"
+          make -C src/ -j8 bin-x86_64-linux/tests.linux bin-x86_64-linux/tap.linux \
+               VERSION_MAJOR=${{ env.VERSION_MAJOR }} VERSION_MINOR=${{ env.VERSION_MINOR }} VERSION_PATCH=${{ env.VERSION_PATCH }} VERSION_PATCH_EXTRA="${{ env.VERSION_EXTRA }}"
+          
+          echo "Moving artifacts to ./uefi/"
+          mkdir -p ./uefi/
+          # 【修复】精确移动，不再使用 *
+          mv src/bin-x86_64-efi/ipxe.efi ./uefi/
+          mv src/bin-x86_64-efi/ipxe.efidrv ./uefi/
+          mv src/bin-x86_64-efi/ipxe.efirom ./uefi/
+          mv src/bin-x86_64-linux/tests.linux ./uefi/
+          mv src/bin-x86_64-linux/tap.linux ./uefi/
+          make -C src/ clean
+
+      - name: Build Legacy BIOS with Embedded Script
+        run: |
+          echo "--- Building Legacy BIOS targets with embedded script (tinycorev2.sh logic) ---"
+          make -C src/ -j8 bin/undionly.kpxe bin/undionly.kkpxe bin/ipxe.pxe bin/ipxe.lkrn bin/ipxe.usb bin/ipxe.dsk bin/ipxe.iso \
+               EMBED=ipxeboot.ipxe \
+               CONFIG=config/console-bios.h,config/general-bios.h,config/branding-bios.h \
+               VERSION_MAJOR=${{ env.VERSION_MAJOR }} VERSION_MINOR=${{ env.VERSION_MINOR }} VERSION_PATCH=${{ env.VERSION_PATCH }} VERSION_PATCH_EXTRA="${{ env.VERSION_EXTRA }}"
+
+          echo "Moving artifacts to ./legacybios-EMBED/"
+          mkdir -p ./legacybios-EMBED/
+          # 【修复】精确移动，不再使用 *
+          mv src/bin/undionly.kpxe ./legacybios-EMBED/
+          mv src/bin/ipxe.pxe ./legacybios-EMBED/
+          mv src/bin/undionly.kpxe ./legacybios-EMBED/
+          mv src/bin/undionly.kkpxe ./legacybios-EMBED/
+          mv src/bin/ipxe.lkrn ./legacybios-EMBED/
+          mv src/bin/ipxe.usb ./legacybios-EMBED/
+          mv src/bin/ipxe.dsk ./legacybios-EMBED/
+          mv src/bin/ipxe.iso ./legacybios-EMBED/
+          make -C src/ clean
+
+      - name: Build Legacy BIOS (Default)
+        run: |
+          echo "--- Building Legacy BIOS default targets (legacy.sh logic) ---"
+          make -C src/ -j8 bin/undionly.kpxe bin/undionly.kkpxe bin/ipxe.pxe bin/ipxe.lkrn bin/ipxe.usb bin/ipxe.dsk bin/ipxe.iso \
+               EMBED=autoboot.ipxe \
+               CONFIG=config/console-bios.h,config/general-bios.h,config/branding-bios.h \
+               VERSION_MAJOR=${{ env.VERSION_MAJOR }} VERSION_MINOR=${{ env.VERSION_MINOR }} VERSION_PATCH=${{ env.VERSION_PATCH }} VERSION_PATCH_EXTRA="${{ env.VERSION_EXTRA }}"
+          
+          echo "Moving artifacts to ./legacybios/"
+          mkdir -p ./legacybios/
+          # 【修复】精确移动，不再使用 *
+          mv src/bin/undionly.kpxe ./legacybios/
+          mv src/bin/undionly.kpxe ./legacybios-EMBED/
+          mv src/bin/undionly.kkpxe ./legacybios-EMBED/
+          mv src/bin/ipxe.pxe ./legacybios-EMBED/
+          mv src/bin/ipxe.lkrn ./legacybios/
+          mv src/bin/ipxe.usb ./legacybios/
+          mv src/bin/ipxe.dsk ./legacybios/
+          mv src/bin/ipxe.iso ./legacybios/
+
+      - name: Upload Release [EMBEDDED]
+        uses: marvinpinto/action-automatic-releases@v1.2.1
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "Latest"
+          prerelease: false
+          title: "Build [EMBEDDED ipxeboot.txt for ipxefm[nas]] ${{ env.VERSION_MAJOR }}.${{ env.VERSION_MINOR }}.${{ env.VERSION_PATCH }}${{ env.VERSION_EXTRA }}"
+          files: |
+            ./legacybios-EMBED/*
+            ./uefi-EMBED/*
+     
+      - name: Upload Release [DEFAULT]
+        uses: marvinpinto/action-automatic-releases@v1.2.1
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "Latest-default"
+          prerelease: false
+          title: "Build [EMBEDDED autoboot.ipxe for ipxefm] ${{ env.VERSION_MAJOR }}.${{ env.VERSION_MINOR }}.${{ env.VERSION_PATCH }}${{ env.VERSION_EXTRA }}"
+          files: |
+            ./legacybios/*
+            ./uefi/*
