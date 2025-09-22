@@ -27,7 +27,7 @@ make -C src/ -j8 \
      bin/ipxe.usb \
      bin/ipxe.dsk \
      bin/ipxe.iso \
-	 CONFIG=config/chobit/pcbios/general.h,config/chobit/pcbios/console.h,config/chobit/pcbios/branding.h \
-	 EMBED=config/chobit/ipxe/autoboot.ipxe \
+	 CONFIG=config/local/local/chobit/pcbios/general.h,config/local/chobit/pcbios/console.h,config/local/chobit/pcbios/branding.h \
+	 EMBED=config/local/chobit/ipxe/autoboot.ipxe \
      VERSION_PATCH_EXTRA="${VERSION_EXTRA}"
 cp -r src/bin/ipxe.pxe /mnt/s/ipxefm/ipxe.bios

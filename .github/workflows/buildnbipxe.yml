@@ -53,7 +53,7 @@ jobs:
           echo "--- Building UEFI targets with embedded script (ipxeboot.ipxe) ---"
           make -C src/ -j$(nproc) bin-x86_64-efi/ipxe.efi bin-x86_64-efi/snponly.efi \
                EMBED=ipxeboot.ipxe \
-               CONFIG=config/local/chobit/efi/console.h,config/local/chobit/efi/general.h,config/local/chobit/efi/branding.h
+               CONFIG=config/local/chobit/efi/console.h,config/local/chobit/efi/general.h,config/local/chobit/efi/branding.h \
           
           echo "--- Moving artifacts to ./uefi-EMBED/ ---"
           mkdir -p ./uefi-EMBED/
@@ -69,7 +69,7 @@ jobs:
           echo "--- Building UEFI default targets (autoboot.ipxe) ---"
           make -C src/ -j$(nproc) bin-x86_64-efi/ipxe.efi bin-x86_64-efi/ipxe.efidrv bin-x86_64-efi/ipxe.efirom \
                EMBED=config/local/chobit/ipxe/autoboot.ipxe \
-               CONFIG=config/local/chobit/efi/console.h,config/local/chobit/efi/general.h,config/local/chobit/efi/branding.h
+               CONFIG=config/local/chobit/efi/console.h,config/local/chobit/efi/general.h,config/local/chobit/efi/branding.h \
 
           echo "--- Building Linux test targets ---"
           make -C src/ -j$(nproc) bin-x86_64-linux/tests.linux bin-x86_64-linux/tap.linux
@@ -91,7 +91,7 @@ jobs:
           echo "--- Building Legacy BIOS targets with embedded script (ipxeboot.ipxe) ---"
           make -C src/ -j$(nproc) bin/undionly.kpxe bin/undionly.kkpxe bin/ipxe.pxe bin/ipxe.lkrn bin/ipxe.usb bin/ipxe.dsk bin/ipxe.iso \
                EMBED=ipxeboot.ipxe \
-               CONFIG=config/local/chobit/pcbios/console.h,config/local/chobit/pcbios/general.h,config/local/chobit/pcbios/branding.h
+               CONFIG=config/local/chobit/pcbios/console.h,config/local/chobit/pcbios/general.h,config/local/chobit/pcbios/branding.h \
 
           echo "--- Moving artifacts to ./legacybios-EMBED/ ---"
           mkdir -p ./legacybios-EMBED/
@@ -113,7 +113,7 @@ jobs:
           echo "--- Building Legacy BIOS default targets (autoboot.ipxe) ---"
           make -C src/ -j$(nproc) bin/undionly.kpxe bin/undionly.kkpxe bin/ipxe.pxe bin/ipxe.lkrn bin/ipxe.usb bin/ipxe.dsk bin/ipxe.iso \
                EMBED=config/local/chobit/ipxe/autoboot.ipxe \
-               CONFIG=config/local/chobit/pcbios/console.h,config/local/chobit/pcbios/general.h,config/local/chobit/pcbios/branding.h
+               CONFIG=config/local/chobit/pcbios/console.h,config/local/chobit/pcbios/general.h,config/local/chobit/pcbios/branding.h \
           
           echo "--- Moving artifacts to ./legacybios/ ---"
           mkdir -p ./legacybios/
