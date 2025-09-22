@@ -2,7 +2,7 @@
 #
 # 正确的 iPXE Legacy BIOS 编译脚本 (最终版)
 #
-
+	 #EMBED=config/local/chobit/ipxe/autoboot.ipxe \
 # 1. 从 GitHub Actions 提供的环境变量中获取构建信息
 #    - GITHUB_SHA: 完整的 Git commit hash
 #    - GITHUB_RUN_NUMBER: 工作流的运行编号
@@ -27,7 +27,6 @@ make -C src/ -j8 \
      bin/ipxe.usb \
      bin/ipxe.dsk \
      bin/ipxe.iso \
-	 CONFIG=config/local/local/chobit/pcbios/general.h,config/local/chobit/pcbios/console.h,config/local/chobit/pcbios/branding.h \
-	 EMBED=config/local/chobit/ipxe/autoboot.ipxe \
+	 CONFIG=vbox \
      VERSION_PATCH_EXTRA="${VERSION_EXTRA}"
 cp -r src/bin/ipxe.pxe /mnt/s/ipxefm/ipxe.bios

@@ -18,14 +18,15 @@ VERSION_EXTRA="-g${SHORT_HASH}-build${BUILD_NUM}"
 # ==============================================================================
 #  步骤 1: 编译所有 UEFI 目标
 # ==============================================================================
-
+cd ..
 echo "--- Building all UEFI targets ---"
 make -C src/ -j8 \
      bin-x86_64-efi/ipxe.efi \
      bin-x86_64-efi/snponly.efi \
      bin-x86_64-efi/ipxe.efidrv \
      bin-x86_64-efi/ipxe.efirom \
-     EMBED=autoboot.ipxe,config/console-efi.h,config/general-efi.h,config/branding-efi.h \
+	 EMBED=config/local/chobit/ipxe/autoboot.ipxe \
+     CONFIG=config/local/config/efi \
      VERSION_PATCH_EXTRA="${VERSION_EXTRA}"
 
 
@@ -38,6 +39,7 @@ echo "--- Building all Linux test targets ---"
 make -C src/ -j8 \
      bin-x86_64-linux/tap.linux \
      bin-x86_64-linux/tests.linux \
-     EMBED=config/console-efi.h,config/general-efi.h,config/branding-efi.h \
+	 EMBED=config/local/chobit/ipxe/autoboot.ipxe \
+     CONFIG=config/local/config/efi \
      VERSION_PATCH_EXTRA="${VERSION_EXTRA}"
 cp -r src/bin-x86_64-efi/ipxe.efi /mnt/s/ipxefm/ipxe.efi	 
