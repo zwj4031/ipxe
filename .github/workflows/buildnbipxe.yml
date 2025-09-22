@@ -14,8 +14,6 @@ jobs:
       - name: Checkout repository (Full Clone with Tags)
         uses: actions/checkout@v4
         with:
-          # 关键修复：执行完整克隆 (fetch-depth: 0) 以确保所有历史和标签可用
-          # 这是让 Makefile 自动版本功能正常工作的前提
           fetch-depth: 0
 
       - name: Install build dependencies
@@ -30,13 +28,9 @@ jobs:
       - name: Generate Version String
         id: version
         run: |
-          # 使用 `git describe` 获取基础版本标签
-          # --dirty 会在有未提交修改时添加 -dirty 后缀
-          # --always 会在没有标签时回退到使用 commit hash
           VERSION_TAG=$(git describe --tags --dirty --always)
           echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
           
-          # 生成发布标题中使用的短哈希和构建号
           SHORT_HASH=$(echo "${GITHUB_SHA}" | cut -c1-7)
           BUILD_NUM=${GITHUB_RUN_NUMBER}
           VERSION_FOR_TITLE="${VERSION_TAG}-build${BUILD_NUM}"
@@ -46,19 +40,52 @@ jobs:
           echo "Version for Release Title: ${VERSION_FOR_TITLE}"
 
       # --------------------------------------------------------------------------------------
-      # BUILD SECTION 1: UEFI with Embedded Script (ipxeboot.ipxe)
+      # BUILD SECTION 1: UEFI with Embedded Script (2025.ipxe)
       # --------------------------------------------------------------------------------------
       - name: Build UEFI with Embedded Script
         run: |
-          echo "--- Building UEFI targets with embedded script (ipxeboot.ipxe) ---"
+          set -e # Exit on error
+          # --- Define directories ---
+          SRC_DIR="src"
+          CONFIG_DIR="$SRC_DIR/config"
+          LOCAL_CONFIG_DIR="src/config/local/chobit/efi"
+          BACKUP_DIR="/tmp/ipxe_backup_$$"
+
+          # --- Cleanup function to restore config on exit ---
+          cleanup() {
+            if [ -d "$BACKUP_DIR" ]; then
+              echo "--- Restoring original config files... ---"
+              # Remove files we copied
+              for file in "$LOCAL_CONFIG_DIR"/*.h; do [ -e "$file" ] || continue; filename=$(basename "$file"); rm -f "$CONFIG_DIR/$filename"; done
+              # Restore backups if any
+              if [ "$(ls -A $BACKUP_DIR)" ]; then mv "$BACKUP_DIR"/*.h "$CONFIG_DIR/"; fi
+              rmdir "$BACKUP_DIR"
+            fi
+          }
+          trap cleanup EXIT
+
+          # --- Backup and Copy ---
+          echo "--- Applying custom config from $LOCAL_CONFIG_DIR ---"
+          mkdir -p "$BACKUP_DIR"
+          for file in $LOCAL_CONFIG_DIR/*.h; do
+            [ -e "$file" ] || continue
+            filename=$(basename "$file")
+            if [ -f "$CONFIG_DIR/$filename" ]; then mv "$CONFIG_DIR/$filename" "$BACKUP_DIR/"; fi
+          done
+          cp $LOCAL_CONFIG_DIR/*.h $CONFIG_DIR/
+
+          # --- Build ---
+          echo "--- Building UEFI targets with embedded script (2025.ipxe) ---"
           make -C src/ -j$(nproc) bin-x86_64-efi/ipxe.efi bin-x86_64-efi/snponly.efi \
-               EMBED=ipxeboot.ipxe \
-               CONFIG=config/local/chobit/efi/console.h,config/local/chobit/efi/general.h,config/local/chobit/efi/branding.h \
+               EMBED=2025.ipxe
           
+          # --- Move artifacts ---
           echo "--- Moving artifacts to ./uefi-EMBED/ ---"
           mkdir -p ./uefi-EMBED/
           mv src/bin-x86_64-efi/ipxe.efi ./uefi-EMBED/
           mv src/bin-x86_64-efi/snponly.efi ./uefi-EMBED/
+          
+          # --- Clean source tree ---
           make -C src/ clean
 
       # --------------------------------------------------------------------------------------
@@ -66,14 +93,43 @@ jobs:
       # --------------------------------------------------------------------------------------
       - name: Build UEFI (Default) and Linux Tests
         run: |
-          echo "--- Building UEFI default targets (autoboot.ipxe) ---"
+          set -e # Exit on error
+          # --- Define directories ---
+          SRC_DIR="src"
+          CONFIG_DIR="$SRC_DIR/config"
+          LOCAL_CONFIG_DIR="src/config/local/chobit/efi"
+          BACKUP_DIR="/tmp/ipxe_backup_$$"
+
+          # --- Cleanup function to restore config on exit ---
+          cleanup() {
+            if [ -d "$BACKUP_DIR" ]; then
+              echo "--- Restoring original config files... ---"
+              for file in "$LOCAL_CONFIG_DIR"/*.h; do [ -e "$file" ] || continue; filename=$(basename "$file"); rm -f "$CONFIG_DIR/$filename"; done
+              if [ "$(ls -A $BACKUP_DIR)" ]; then mv "$BACKUP_DIR"/*.h "$CONFIG_DIR/"; fi
+              rmdir "$BACKUP_DIR"
+            fi
+          }
+          trap cleanup EXIT
+
+          # --- Backup and Copy ---
+          echo "--- Applying custom config from $LOCAL_CONFIG_DIR ---"
+          mkdir -p "$BACKUP_DIR"
+          for file in $LOCAL_CONFIG_DIR/*.h; do
+            [ -e "$file" ] || continue
+            filename=$(basename "$file")
+            if [ -f "$CONFIG_DIR/$filename" ]; then mv "$CONFIG_DIR/$filename" "$BACKUP_DIR/"; fi
+          done
+          cp $LOCAL_CONFIG_DIR/*.h $CONFIG_DIR/
+
+          # --- Build ---
+          echo "--- Building UEFI default targets (2025.ipxe) ---"
           make -C src/ -j$(nproc) bin-x86_64-efi/ipxe.efi bin-x86_64-efi/ipxe.efidrv bin-x86_64-efi/ipxe.efirom \
-               EMBED=config/local/chobit/ipxe/autoboot.ipxe \
-               CONFIG=config/local/chobit/efi/console.h,config/local/chobit/efi/general.h,config/local/chobit/efi/branding.h \
+               EMBED=config/local/chobit/ipxe/2025.ipxe
 
           echo "--- Building Linux test targets ---"
           make -C src/ -j$(nproc) bin-x86_64-linux/tests.linux bin-x86_64-linux/tap.linux
           
+          # --- Move artifacts ---
           echo "--- Moving artifacts to ./uefi/ ---"
           mkdir -p ./uefi/
           mv src/bin-x86_64-efi/ipxe.efi ./uefi/
@@ -81,28 +137,61 @@ jobs:
           mv src/bin-x86_64-efi/ipxe.efirom ./uefi/
           mv src/bin-x86_64-linux/tests.linux ./uefi/
           mv src/bin-x86_64-linux/tap.linux ./uefi/
+          
+          # --- Clean source tree ---
           make -C src/ clean
 
       # --------------------------------------------------------------------------------------
-      # BUILD SECTION 3: Legacy BIOS with Embedded Script (ipxeboot.ipxe)
+      # BUILD SECTION 3: Legacy BIOS with Embedded Script (2025.ipxe)
       # --------------------------------------------------------------------------------------
       - name: Build Legacy BIOS with Embedded Script
         run: |
-          echo "--- Building Legacy BIOS targets with embedded script (ipxeboot.ipxe) ---"
-          make -C src/ -j$(nproc) bin/undionly.kpxe bin/undionly.kkpxe bin/ipxe.pxe bin/ipxe.lkrn bin/ipxe.usb bin/ipxe.dsk bin/ipxe.iso \
-               EMBED=ipxeboot.ipxe \
-               CONFIG=config/local/chobit/pcbios/console.h,config/local/chobit/pcbios/general.h,config/local/chobit/pcbios/branding.h \
+          set -e # Exit on error
+          # --- Define directories ---
+          SRC_DIR="src"
+          CONFIG_DIR="$SRC_DIR/config"
+          LOCAL_CONFIG_DIR="src/config/local/chobit/pcbios"
+          BACKUP_DIR="/tmp/ipxe_backup_$$"
 
+          # --- Cleanup function to restore config on exit ---
+          cleanup() {
+            if [ -d "$BACKUP_DIR" ]; then
+              echo "--- Restoring original config files... ---"
+              for file in "$LOCAL_CONFIG_DIR"/*.h; do [ -e "$file" ] || continue; filename=$(basename "$file"); rm -f "$CONFIG_DIR/$filename"; done
+              if [ "$(ls -A $BACKUP_DIR)" ]; then mv "$BACKUP_DIR"/*.h "$CONFIG_DIR/"; fi
+              rmdir "$BACKUP_DIR"
+            fi
+          }
+          trap cleanup EXIT
+          
+          # --- Backup and Copy ---
+          echo "--- Applying custom config from $LOCAL_CONFIG_DIR ---"
+          mkdir -p "$BACKUP_DIR"
+          for file in $LOCAL_CONFIG_DIR/*.h; do
+            [ -e "$file" ] || continue
+            filename=$(basename "$file")
+            if [ -f "$CONFIG_DIR/$filename" ]; then mv "$CONFIG_DIR/$filename" "$BACKUP_DIR/"; fi
+          done
+          cp $LOCAL_CONFIG_DIR/*.h $CONFIG_DIR/
+
+          # --- Build ---
+          echo "--- Building Legacy BIOS targets with embedded script (2025.ipxe) ---"
+          make -C src/ -j$(nproc) bin/undionly.kpxe bin/undionly.kkpxe bin/ipxe.pxe bin/ipxe.lkrn bin/ipxe.usb bin/ipxe.dsk bin/ipxe.iso \
+               EMBED=2025.ipxe
+
+          # --- Move artifacts ---
           echo "--- Moving artifacts to ./legacybios-EMBED/ ---"
           mkdir -p ./legacybios-EMBED/
-          # 精确移动，避免歧义
           mv src/bin/undionly.kpxe ./legacybios-EMBED/
           mv src/bin/undionly.kkpxe ./legacybios-EMBED/
           mv src/bin/ipxe.pxe ./legacybios-EMBED/
+          cp src/bin/ipxe.pxe ./legacybios-EMBED/pxe.bios # <--- 新增的复制操作
           mv src/bin/ipxe.lkrn ./legacybios-EMBED/
           mv src/bin/ipxe.usb ./legacybios-EMBED/
           mv src/bin/ipxe.dsk ./legacybios-EMBED/
           mv src/bin/ipxe.iso ./legacybios-EMBED/
+          
+          # --- Clean source tree ---
           make -C src/ clean
 
       # --------------------------------------------------------------------------------------
@@ -110,17 +199,46 @@ jobs:
       # --------------------------------------------------------------------------------------
       - name: Build Legacy BIOS (Default)
         run: |
-          echo "--- Building Legacy BIOS default targets (autoboot.ipxe) ---"
-          make -C src/ -j$(nproc) bin/undionly.kpxe bin/undionly.kkpxe bin/ipxe.pxe bin/ipxe.lkrn bin/ipxe.usb bin/ipxe.dsk bin/ipxe.iso \
-               EMBED=config/local/chobit/ipxe/autoboot.ipxe \
-               CONFIG=config/local/chobit/pcbios/console.h,config/local/chobit/pcbios/general.h,config/local/chobit/pcbios/branding.h \
+          set -e # Exit on error
+          # --- Define directories ---
+          SRC_DIR="src"
+          CONFIG_DIR="$SRC_DIR/config"
+          LOCAL_CONFIG_DIR="src/config/local/chobit/pcbios"
+          BACKUP_DIR="/tmp/ipxe_backup_$$"
+
+          # --- Cleanup function to restore config on exit ---
+          cleanup() {
+            if [ -d "$BACKUP_DIR" ]; then
+              echo "--- Restoring original config files... ---"
+              for file in "$LOCAL_CONFIG_DIR"/*.h; do [ -e "$file" ] || continue; filename=$(basename "$file"); rm -f "$CONFIG_DIR/$filename"; done
+              if [ "$(ls -A $BACKUP_DIR)" ]; then mv "$BACKUP_DIR"/*.h "$CONFIG_DIR/"; fi
+              rmdir "$BACKUP_DIR"
+            fi
+          }
+          trap cleanup EXIT
           
+          # --- Backup and Copy ---
+          echo "--- Applying custom config from $LOCAL_CONFIG_DIR ---"
+          mkdir -p "$BACKUP_DIR"
+          for file in $LOCAL_CONFIG_DIR/*.h; do
+            [ -e "$file" ] || continue
+            filename=$(basename "$file")
+            if [ -f "$CONFIG_DIR/$filename" ]; then mv "$CONFIG_DIR/$filename" "$BACKUP_DIR/"; fi
+          done
+          cp $LOCAL_CONFIG_DIR/*.h $CONFIG_DIR/
+
+          # --- Build ---
+          echo "--- Building Legacy BIOS default targets (2025.ipxe) ---"
+          make -C src/ -j$(nproc) bin/undionly.kpxe bin/undionly.kkpxe bin/ipxe.pxe bin/ipxe.lkrn bin/ipxe.usb bin/ipxe.dsk bin/ipxe.iso \
+               EMBED=config/local/chobit/ipxe/2025.ipxe
+          
+          # --- Move artifacts ---
           echo "--- Moving artifacts to ./legacybios/ ---"
           mkdir -p ./legacybios/
-          # 精确移动，避免歧义
           mv src/bin/undionly.kpxe ./legacybios/
           mv src/bin/undionly.kkpxe ./legacybios/
           mv src/bin/ipxe.pxe ./legacybios/
+          cp src/bin/ipxe.pxe ./legacybios/pxe.bios # <--- 新增的复制操作
           mv src/bin/ipxe.lkrn ./legacybios/
           mv src/bin/ipxe.usb ./legacybios/
           mv src/bin/ipxe.dsk ./legacybios/
@@ -129,24 +247,24 @@ jobs:
       # --------------------------------------------------------------------------------------
       # RELEASE SECTION
       # --------------------------------------------------------------------------------------
-      - name: Upload Release [EMBEDDED ipxeboot.ipxe]
+      - name: Upload Release [EMBEDDED 2025.ipxe]
         uses: marvinpinto/action-automatic-releases@v1.2.1
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "latest" # 推荐使用小写
+          automatic_release_tag: "latest"
           prerelease: false
-          title: "Build [EMBEDDED ipxeboot.ipxe] ${{ steps.version.outputs.version_for_title }}"
+          title: "Build [EMBEDDED 2025.ipxe] ${{ steps.version.outputs.version_for_title }}"
           files: |
             ./legacybios-EMBED/*
             ./uefi-EMBED/*
      
-      - name: Upload Release [DEFAULT autoboot.ipxe]
+      - name: Upload Release [DEFAULT 2025.ipxe]
         uses: marvinpinto/action-automatic-releases@v1.2.1
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "latest-default" # 推荐使用小写
+          automatic_release_tag: "latest-default"
           prerelease: false
-          title: "Build [DEFAULT autoboot.ipxe] ${{ steps.version.outputs.version_for_title }}"
+          title: "Build [DEFAULT 2025.ipxe] ${{ steps.version.outputs.version_for_title }}"
           files: |
             ./legacybios/*
             ./uefi/*

@@ -37,17 +37,17 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #define	NET_PROTO_IPV4		/* IPv4 protocol */
 //#define NET_PROTO_IPV6	/* IPv6 protocol */
 #undef	NET_PROTO_FCOE		/* Fibre Channel over Ethernet protocol */
-#define	NET_PROTO_STP		/* Spanning Tree protocol */
-#define	NET_PROTO_LACP		/* Link Aggregation control protocol */
-#define	NET_PROTO_EAPOL		/* EAP over LAN protocol */
-//#define NET_PROTO_LLDP	/* Link Layer Discovery protocol */
+//#define	NET_PROTO_STP		/* Spanning Tree protocol */
+//#define	NET_PROTO_LACP		/* Link Aggregation control protocol */
+//#define	NET_PROTO_EAPOL		/* EAP over LAN protocol */
+#define NET_PROTO_LLDP	/* Link Layer Discovery protocol */
 
 /*
  * PXE support
  *
  */
-//#undef	PXE_STACK		/* PXE stack in iPXE - you want this! */
-//#undef	PXE_MENU		/* PXE menu booting */
+#define	PXE_STACK		/* PXE stack in iPXE - you want this! */
+#define	PXE_MENU		/* PXE menu booting */
 
 /*
  * Download protocols
@@ -56,22 +56,22 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
 #define	DOWNLOAD_PROTO_TFTP	/* Trivial File Transfer Protocol */
 #define	DOWNLOAD_PROTO_HTTP	/* Hypertext Transfer Protocol */
-#undef	DOWNLOAD_PROTO_HTTPS	/* Secure Hypertext Transfer Protocol */
-#undef	DOWNLOAD_PROTO_FTP	/* File Transfer Protocol */
-#undef	DOWNLOAD_PROTO_SLAM	/* Scalable Local Area Multicast */
-#undef	DOWNLOAD_PROTO_NFS	/* Network File System Protocol */
-//#undef DOWNLOAD_PROTO_FILE	/* Local filesystem access */
+#define	DOWNLOAD_PROTO_HTTPS	/* Secure Hypertext Transfer Protocol */
+#define	DOWNLOAD_PROTO_FTP	/* File Transfer Protocol */
+#define	DOWNLOAD_PROTO_SLAM	/* Scalable Local Area Multicast */
+#define	DOWNLOAD_PROTO_NFS	/* Network File System Protocol */
+#define DOWNLOAD_PROTO_FILE	/* Local filesystem access */
 
 /*
  * SAN boot protocols
  *
  */
 
-//#undef	SANBOOT_PROTO_ISCSI	/* iSCSI protocol */
-//#undef	SANBOOT_PROTO_AOE	/* AoE protocol */
-//#undef	SANBOOT_PROTO_IB_SRP	/* Infiniband SCSI RDMA protocol */
-//#undef	SANBOOT_PROTO_FCP	/* Fibre Channel protocol */
-//#undef	SANBOOT_PROTO_HTTP	/* HTTP SAN protocol */
+#define	SANBOOT_PROTO_ISCSI	/* iSCSI protocol */
+#define	SANBOOT_PROTO_AOE	/* AoE protocol */
+#define	SANBOOT_PROTO_IB_SRP	/* Infiniband SCSI RDMA protocol */
+#define	SANBOOT_PROTO_FCP	/* Fibre Channel protocol */
+#define	SANBOOT_PROTO_HTTP	/* HTTP SAN protocol */
 
 /*
  * HTTP extensions
@@ -92,15 +92,46 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #define	CRYPTO_80211_WPA2	/* Add support for stronger WPA cryptography */
 
 /*
- * 802.1x EAP authentication methods
+ * Command help messages
  *
- */
-#define EAP_METHOD_MD5		/* MD5-Challenge port authentication */
-//#define EAP_METHOD_MSCHAPV2	/* MS-CHAPv2 port authentication */
-
-/*
- * Name resolution modules
+ * iPXE command help messages include a URI constructed from the
+ * command name, such as
  *
+ *   "See https://ipxe.org/cmd/vcreate for further information"
+ *
+ * The iPXE web site includes documentation for the commands provided
+ * by the iPXE shell, including:
+ *
+ * - details of the command syntax (e.g. "vcreate --tag <tag>
+ *   [--priority <priority>] <trunk interface>").
+ *
+ * - example usages of the command (e.g. "vcreate --tag 123 net0")
+ *
+ * - a formal description of the command (e.g. "Create a VLAN network
+ *   interface on an existing trunk network interface. The new network
+ *   interface will be named by appending a hyphen and the VLAN tag
+ *   value to the trunk network interface name.")
+ *
+ * - details of the possible exit statuses from the command.
+ *
+ * - links to documentation for related commands (e.g. "vdestroy")
+ *
+ * - links to documentation for relevant build options (e.g. "VLAN_CMD").
+ *
+ * - general hints and tips on using the command.
+ *
+ * If you want to provide your own documentation for all of the
+ * commands provided by the iPXE shell, rather than using the existing
+ * support infrastructure provided by https://ipxe.org, then you may
+ * define a custom URI to be included within command help messages.
+ *
+ * Note that the custom URI is a printf() format string which must
+ * include a format specifier for the command name.
+ *
+ * [ Please also note that the existing documentation is licensed
+ *   under Creative Commons terms which require attribution to the
+ *   iPXE project and prohibit the alteration or removal of any
+ *   references to "iPXE". ]
  */
 
 #define	DNS_RESOLVER		/* DNS resolver */
@@ -113,12 +144,12 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
  *
  */
 //#define	IMAGE_NBI		/* NBI image support */
-//#define	IMAGE_ELF		/* ELF image support */
-//#define	IMAGE_MULTIBOOT		/* MultiBoot image support */
+#define	IMAGE_ELF		/* ELF image support */
+#define	IMAGE_MULTIBOOT		/* MultiBoot image support */
 //#define	IMAGE_PXE		/* PXE image support */
 //#define	IMAGE_SCRIPT		/* iPXE script image support */
-//#define	IMAGE_LKRN		/* Linux kernel image support */
-//#define	IMAGE_COMBOOT		/* SYSLINUX COMBOOT image support */
+#define	IMAGE_LKRN		/* Linux kernel image support */
+#define	IMAGE_COMBOOT		/* SYSLINUX COMBOOT image support */
 //#define	IMAGE_EFI		/* EFI image support */
 //#define	IMAGE_SDI		/* SDI image support */
 //#define	IMAGE_PNM		/* PNM image support */
@@ -126,9 +157,9 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #define	IMAGE_DER		/* DER image support */
 #define	IMAGE_PEM		/* PEM image support */
 //#define	IMAGE_EFISIG		/* EFI signature list image support */
-//#define	IMAGE_ZLIB		/* ZLIB image support */
-//#define	IMAGE_GZIP		/* GZIP image support */
-//#define	IMAGE_UCODE		/* Microcode update image support */
+#define	IMAGE_ZLIB		/* ZLIB image support */
+#define	IMAGE_GZIP		/* GZIP image support */
+#define	IMAGE_UCODE		/* Microcode update image support */
 
 /*
  * Command-line commands to include
@@ -146,40 +177,31 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #define DHCP_CMD		/* DHCP management commands */
 #define SANBOOT_CMD		/* SAN boot commands */
 #define MENU_CMD		/* Menu commands */
-#define FORM_CMD		/* Form commands */
 #define LOGIN_CMD		/* Login command */
 #define SYNC_CMD		/* Sync command */
 #define SHELL_CMD		/* Shell command */
-//#define NSLOOKUP_CMD		/* DNS resolving command */
-//#define TIME_CMD		/* Time commands */
-//#define DIGEST_CMD		/* Image crypto digest commands */
-//#define LOTEST_CMD		/* Loopback testing commands */
-//#define VLAN_CMD		/* VLAN commands */
-//#define PXE_CMD		/* PXE commands */
-//#define REBOOT_CMD		/* Reboot command */
-//#define POWEROFF_CMD		/* Power off command */
+#define NSLOOKUP_CMD		/* DNS resolving command */
+#define TIME_CMD		/* Time commands */
+#define DIGEST_CMD		/* Image crypto digest commands */
+#define LOTEST_CMD		/* Loopback testing commands */
+#define VLAN_CMD		/* VLAN commands */
+#define PXE_CMD		/* PXE commands */
+#define REBOOT_CMD		/* Reboot command */
+#define POWEROFF_CMD		/* Power off command */
 //#define IMAGE_TRUST_CMD	/* Image trust management commands */
-//#define IMAGE_CRYPT_CMD	/* Image encryption management commands */
-//#define PCI_CMD		/* PCI commands */
-//#define PARAM_CMD		/* Request parameter commands */
+#define PCI_CMD		/* PCI commands */
+#define PARAM_CMD		/* Form parameter commands */
 //#define NEIGHBOUR_CMD		/* Neighbour management commands */
-//#define PING_CMD		/* Ping command */
-//#define CONSOLE_CMD		/* Console command */
-//#define IPSTAT_CMD		/* IP statistics commands */
-//#define PROFSTAT_CMD		/* Profiling commands */
-//#define NTP_CMD		/* NTP commands */
-//#define CERT_CMD		/* Certificate management commands */
-//#define IMAGE_MEM_CMD		/* Read memory command */
+#define IMAGE_MEM_CMD		/* Read memory command */
+#define PING_CMD		/* Ping command */
+#define CONSOLE_CMD		/* Console command */
 #define IMAGE_ARCHIVE_CMD	/* Archive image management commands */
-#define SHIM_CMD		/* EFI shim command (or dummy command) */
-//#define USB_CMD		/* USB commands */
-//#define FDT_CMD		/* Flattened Device Tree commands */
+//#define SHIM_CMD		/* EFI shim command (or dummy command) */
+#define IPSTAT_CMD		/* IP statistics commands */
+//#define PROFSTAT_CMD		/* Profiling commands */
+#define NTP_CMD		/* NTP commands */
+#define CERT_CMD		/* Certificate management commands */
 
-/*
- * Certificate sources
- *
- */
-//#undef CERTS_EFI		/* EFI certificate sources */
 
 /*
  * ROM-specific options
@@ -200,7 +222,12 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
  *
  */
 #undef	ERRMSG_80211		/* All 802.11 error descriptions (~3.3kb) */
-
+/*
+ * 802.1x EAP authentication methods
+ *
+ */
+#define EAP_METHOD_MD5		/* MD5-Challenge port authentication */
+#define EAP_METHOD_MSCHAPV2	/* MS-CHAPv2 port authentication */
 /*
  * Obscure configuration options
  *
@@ -212,7 +239,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 				 * number.  Add "bs" to the list of
 				 * make targets.  For example:
 				 * "make bin/rtl8139.dsk bs" */
-#undef	BUILD_ID		/* Include a custom build ID string,
+#define	BUILD_ID 	/* Include a custom build ID string,
 				 * e.g "test-foo" */
 #undef	NULL_TRAP		/* Attempt to catch NULL function calls */
 #undef	GDBSERIAL		/* Remote GDB debugging over serial */
@@ -228,4 +255,4 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <config/local/general.h>
 #include LOCAL_NAMED_CONFIG(general.h)
 
-#endif /* CONFIG_GENERAL_H */
+#endif /* CONFIG_BRANDING_H */

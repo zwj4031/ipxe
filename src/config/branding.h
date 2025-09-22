@@ -24,8 +24,8 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
  * "iPXE".
  *
  */
-#define PRODUCT_NAME ""
-#define PRODUCT_SHORT_NAME "iPXE"
+#define PRODUCT_NAME "jiang nan yi gen cong[20250921]"
+#define PRODUCT_SHORT_NAME "CHOBIT"
 #define PRODUCT_URI "https://ipxe.org"
 
 /*

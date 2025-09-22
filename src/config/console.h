@@ -35,13 +35,12 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
  */
 
 //#define	CONSOLE_SERIAL		/* Serial port console */
-//#define	CONSOLE_FRAMEBUFFER	/* Graphical framebuffer console */
+#define	CONSOLE_FRAMEBUFFER	/* Graphical framebuffer console */
 //#define	CONSOLE_SYSLOG		/* Syslog console */
 //#define	CONSOLE_SYSLOGS		/* Encrypted syslog console */
 //#define	CONSOLE_VMWARE		/* VMware logfile console */
 //#define	CONSOLE_DEBUGCON	/* Bochs/QEMU/KVM debug port console */
 //#define	CONSOLE_INT13		/* INT13 disk log console */
-//#define	CONSOLE_SBI		/* RISC-V SBI debug console */
 
 /*
  * Very obscure console types
