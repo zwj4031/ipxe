@@ -1,0 +1,90 @@
+#!ipxe
+#新版嵌入脚本
+:retry_dhcp
+dhcp || goto retry_dhcp
+################## 如果filename设置不存在，则设置一个默认值
+
+isset ${filename} || set filename ipxeboot.txt
+
+# 这是进入菜单的唯一方式，并且它在任何网络操作之前执行。
+prompt --key 0x02 --timeout 60 Press Ctrl-B for iPXE Menu... && goto menu || autoboot
+
+:boot
+
+#找不到next-server变量就把dhcp-server的变量值给它
+isset ${next-server} || set next-server ${dhcp-server}
+#找不到proxydhcp/next-server变量就把proxydhcp/dhcp-server的变量值给它
+isset ${proxydhcp/next-server} || set proxydhcp/next-server ${proxydhcp/dhcp-server}
+#如果proxydhcp/next-server变量值存在，那么赋给booturl，不然就使用next-server的变量值
+isset ${proxydhcp/next-server} && set booturl ${proxydhcp/next-server} || set booturl ${next-server}
+# 如果上述变量都为空（例如静态IP），配置ip
+isset ${booturl} || goto netconfig
+
+:menu
+ menu  iPXE's Boot Menu BootServer:http://${booturl}
+
+   item --gap -- Choose BootFile
+   item --key 1 autoboot            1.  AutoBoot
+   item --key 2 iPXEFM            2.  Boot iPXEFM
+   item --gap -- Cloud Boot
+   item  RyanBoot              RyanBoot
+   item  netboot.xyz.${platform}  netboot.xyz
+
+   item --gap -- Advanced options
+   item --key l reload         L.  Reload iPXE Menu
+   item --key c config   	   C.  Configure Boot Server
+   item --key n netconfig      N.  Configure Network (Static IP)
+   item --key s shell          S.  Drop to iPXE shell
+   item --key r reboot         R.  Reboot computer
+   item --key p poweroff       P.  Poweroff computer
+   item --key x bootlocal      X.  Exit iPXE and continue BIOS boot
+   item ratio                Resolution ratio [1920x1080 1024x768 800x600]
+choose --timeout 2000 --default autoboot selected ||
+iseq ${selected} autoboot && autoboot ||
+iseq ${selected} iPXEFM && chain tftp://${booturl}/ipxeboot.txt ||
+iseq ${selected} config && goto config ||
+iseq ${selected} netconfig && goto netconfig ||
+iseq ${selected} shell && shell ||
+iseq ${selected} reboot && reboot ||
+iseq ${selected} poweroff && poweroff ||
+iseq ${selected} bootlocal && goto ${platform}bootlocal ||
+iseq ${selected} ratio && goto ratio ||
+iseq ${selected} RyanBoot && chain --autofree http://hkkitlee.ddns.net:8999/chain.ipxe ||
+iseq ${selected} netboot.xyz.pcbios && chain --autofree https://boot.netboot.xyz/ipxe/netboot.xyz.lkrn ||
+iseq ${selected} netboot.xyz.efi && chain --autofree https://boot.netboot.xyz/ipxe/netboot.xyz.efi ||
+iseq ${selected} burn && chain ${prefix}/types/burn ||
+iseq ${selected} reload && chain http://${booturl}/${filename} ||
+goto retry_dhcp
+
+
+:retry_dhcp
+dhcp || goto retry_dhcp
+
+:config
+# 判断应该进入哪个配置流程
+isset ${proxydhcp/next-server} && goto config_proxy || goto config_standard
+
+:config_proxy
+# ProxyDHCP环境下的配置表单
+form Configure ProxyDHCP Boot Server
+item proxydhcp/next-server   Boot Server (ProxyDHCP)
+item filename                Script Filename
+present || goto menu
+goto boot
+
+:config_standard
+# 标准DHCP或静态IP环境下的配置表单
+form Configure Boot Server (DHCP/Static)
+item next-server   Boot Server
+item filename      Script Filename
+present || goto menu
+goto boot
+
+:netconfig
+form Configure IPv4 networking on ${net0/mac}
+item net0/ip        IPv4 address
+item net0/netmask   Subnet mask
+item net0/gateway   Gateway address
+item dns            DNS server address
+present || goto menu
+goto menu
