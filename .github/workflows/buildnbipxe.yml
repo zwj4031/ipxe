@@ -77,7 +77,7 @@ jobs:
           # --- Build ---
           echo "--- Building UEFI targets with embedded script (2025.ipxe) ---"
           make -C src/ -j$(nproc) bin-x86_64-efi/ipxe.efi bin-x86_64-efi/snponly.efi \
-               EMBED=2025.ipxe
+               EMBED=config/local/chobit/ipxe/2025.ipxe
           
           # --- Move artifacts ---
           echo "--- Moving artifacts to ./uefi-EMBED/ ---"
@@ -177,8 +177,8 @@ jobs:
           # --- Build ---
           echo "--- Building Legacy BIOS targets with embedded script (2025.ipxe) ---"
           make -C src/ -j$(nproc) bin/undionly.kpxe bin/undionly.kkpxe bin/ipxe.pxe bin/ipxe.lkrn bin/ipxe.usb bin/ipxe.dsk bin/ipxe.iso \
-               EMBED=2025.ipxe
-
+               
+            EMBED=config/local/chobit/ipxe/2025.ipxe
           # --- Move artifacts ---
           echo "--- Moving artifacts to ./legacybios-EMBED/ ---"
           mkdir -p ./legacybios-EMBED/
