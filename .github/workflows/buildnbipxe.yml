@@ -185,7 +185,7 @@ jobs:
           mv src/bin/undionly.kpxe ./legacybios-EMBED/
           mv src/bin/undionly.kkpxe ./legacybios-EMBED/
           mv src/bin/ipxe.pxe ./legacybios-EMBED/
-          cp src/bin/ipxe.pxe ./legacybios-EMBED/pxe.bios # <--- 新增的复制操作
+          cp ./legacybios-EMBED/ipxe.pxe ./legacybios-EMBED/pxe.bios # <--- 新增的复制操作
           mv src/bin/ipxe.lkrn ./legacybios-EMBED/
           mv src/bin/ipxe.usb ./legacybios-EMBED/
           mv src/bin/ipxe.dsk ./legacybios-EMBED/
