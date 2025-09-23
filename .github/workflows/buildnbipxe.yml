@@ -238,7 +238,7 @@ jobs:
           mv src/bin/undionly.kpxe ./legacybios/
           mv src/bin/undionly.kkpxe ./legacybios/
           mv src/bin/ipxe.pxe ./legacybios/
-          cp src/bin/ipxe.pxe ./legacybios/pxe.bios # <--- 新增的复制操作
+          cp ./legacybios/ipxe.pxe ./legacybios/pxe.bios # <--- 新增的复制操作
           mv src/bin/ipxe.lkrn ./legacybios/
           mv src/bin/ipxe.usb ./legacybios/
           mv src/bin/ipxe.dsk ./legacybios/
