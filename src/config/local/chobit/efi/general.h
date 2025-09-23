@@ -46,8 +46,8 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
  * PXE support
  *
  */
-#define	PXE_STACK		/* PXE stack in iPXE - you want this! */
-#define	PXE_MENU		/* PXE menu booting */
+//#define	PXE_STACK		/* PXE stack in iPXE - you want this! */
+//#define	PXE_MENU		/* PXE menu booting */
 
 /*
  * Download protocols
@@ -80,7 +80,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #define HTTP_AUTH_BASIC		/* Basic authentication */
 #define HTTP_AUTH_DIGEST	/* Digest authentication */
 //#define HTTP_AUTH_NTLM	/* NTLM authentication */
-//下面的是p2p支持
+//脧脗脙忙碌脛脢脟p2p脰搂鲁脰
 #define HTTP_ENC_PEERDIST	/* PeerDist content encoding */
 //#define HTTP_HACK_GCE		/* Google Compute Engine hacks */
 
@@ -114,7 +114,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
  */
 #define	IMAGE_NBI		/* NBI image support */
 #define	IMAGE_ELF		/* ELF image support */
-//bios专用#define	IMAGE_MULTIBOOT		/* MultiBoot image support */
+//bios脳篓脫脙#define	IMAGE_MULTIBOOT		/* MultiBoot image support */
 #define	IMAGE_PXE		/* PXE image support */
 #define	IMAGE_SCRIPT		/* iPXE script image support */
 #define	IMAGE_LKRN		/* Linux kernel image support */
