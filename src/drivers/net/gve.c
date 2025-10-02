@@ -25,6 +25,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 #include <unistd.h>
 #include <errno.h>
 #include <assert.h>
@@ -125,6 +126,59 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
 /******************************************************************************
  *
+ * Buffer layout
+ *
+ ******************************************************************************
+ */
+
+/**
+ * Get buffer offset (within queue page list allocation)
+ *
+ * @v queue		Descriptor queue
+ * @v tag		Buffer tag
+ * @ret addr		Buffer address within queue page list address space
+ */
+static inline __attribute__ (( always_inline)) size_t
+gve_offset ( struct gve_queue *queue, unsigned int tag ) {
+
+	/* We allocate sufficient pages for the maximum fill level of
+	 * buffers, and reuse the buffers in strict rotation as they
+	 * are released by the hardware.
+	 */
+	assert ( tag < queue->fill );
+	return ( tag * GVE_BUF_SIZE );
+}
+
+/**
+ * Get buffer address (within queue page list address space)
+ *
+ * @v queue		Descriptor queue
+ * @v tag		Buffer tag
+ * @ret addr		Buffer address within queue page list address space
+ */
+static inline __attribute__ (( always_inline)) physaddr_t
+gve_address ( struct gve_queue *queue, unsigned int tag ) {
+
+	/* Pages are allocated as a single contiguous block */
+	return ( queue->qpl.base + gve_offset ( queue, tag ) );
+}
+
+/**
+ * Get buffer address
+ *
+ * @v queue		Descriptor queue
+ * @v tag		Buffer tag
+ * @ret addr		Buffer address
+ */
+static inline __attribute__ (( always_inline )) void *
+gve_buffer ( struct gve_queue *queue, unsigned int tag ) {
+
+	/* Pages are allocated as a single contiguous block */
+	return ( queue->qpl.data + gve_offset ( queue, tag ) );
+}
+
+/******************************************************************************
+ *
  * Device reset
  *
  ******************************************************************************
@@ -181,6 +235,21 @@ static int gve_reset ( struct gve_nic *gve ) {
  *
  ******************************************************************************
  */
+
+/**
+ * Get operating mode name (for debugging)
+ *
+ * @v mode		Operating mode
+ * @ret name		Mode name
+ */
+static inline const char * gve_mode_name ( unsigned int mode ) {
+	static char buf[ 8 /* "XXX-XXX" + NUL */ ];
+
+	snprintf ( buf, sizeof ( buf ), "%s-%s",
+		   ( ( mode & GVE_MODE_DQO ) ? "DQO" : "GQI" ),
+		   ( ( mode & GVE_MODE_QPL ) ? "QPL" : "RDA" ) );
+	return buf;
+}
 
 /**
  * Allocate admin queue
@@ -489,6 +558,11 @@ static int gve_describe ( struct gve_nic *gve ) {
 	}
 	DBGC ( gve, "GVE %p supports options %#08x\n", gve, gve->options );
 
+	/* Select preferred operating mode */
+	gve->mode = GVE_MODE_QPL;
+	DBGC ( gve, "GVE %p using %s mode\n",
+	       gve, gve_mode_name ( gve->mode ) );
+
 	return 0;
 }
 
@@ -516,6 +590,7 @@ static int gve_configure ( struct gve_nic *gve ) {
 	cmd->conf.num_events = cpu_to_be32 ( events->count );
 	cmd->conf.num_irqs = cpu_to_be32 ( GVE_IRQ_COUNT );
 	cmd->conf.irq_stride = cpu_to_be32 ( sizeof ( irqs->irq[0] ) );
+	cmd->conf.format = GVE_FORMAT ( gve->mode );
 
 	/* Issue command */
 	if ( ( rc = gve_admin ( gve ) ) != 0 )
@@ -563,6 +638,10 @@ static int gve_register ( struct gve_nic *gve, struct gve_qpl *qpl ) {
 	unsigned int i;
 	int rc;
 
+	/* Do nothing if using raw DMA addressing */
+	if ( ! ( gve->mode & GVE_MODE_QPL ) )
+		return 0;
+
 	/* Build page address list */
 	for ( i = 0 ; i < qpl->count ; i++ ) {
 		addr = ( qpl->data + ( i * GVE_PAGE_SIZE ) );
@@ -594,6 +673,10 @@ static int gve_register ( struct gve_nic *gve, struct gve_qpl *qpl ) {
 static int gve_unregister ( struct gve_nic *gve, struct gve_qpl *qpl ) {
 	int rc;
 
+	/* Do nothing if using raw DMA addressing */
+	if ( ! ( gve->mode & GVE_MODE_QPL ) )
+		return 0;
+
 	/* Issue command */
 	if ( ( rc = gve_admin_simple ( gve, GVE_ADMIN_UNREGISTER,
 				       qpl->id ) ) != 0 ) {
@@ -607,9 +690,10 @@ static int gve_unregister ( struct gve_nic *gve, struct gve_qpl *qpl ) {
  * Construct command to create transmit queue
  *
  * @v queue		Transmit queue
+ * @v qpl		Queue page list ID
  * @v cmd		Admin queue command
  */
-static void gve_create_tx_param ( struct gve_queue *queue,
+static void gve_create_tx_param ( struct gve_queue *queue, uint32_t qpl,
 				  union gve_admin_command *cmd ) {
 	struct gve_admin_create_tx *create = &cmd->create_tx;
 	const struct gve_queue_type *type = queue->type;
@@ -617,18 +701,25 @@ static void gve_create_tx_param ( struct gve_queue *queue,
 	/* Construct request parameters */
 	create->res = cpu_to_be64 ( dma ( &queue->res_map, queue->res ) );
 	create->desc =
-		cpu_to_be64 ( dma ( &queue->desc_map, queue->desc.tx ) );
-	create->qpl_id = cpu_to_be32 ( type->qpl );
+		cpu_to_be64 ( dma ( &queue->desc_map, queue->desc.raw ) );
+	create->qpl_id = cpu_to_be32 ( qpl );
 	create->notify_id = cpu_to_be32 ( type->irq );
+	create->desc_count = cpu_to_be16 ( queue->count );
+	if ( queue->cmplt.raw ) {
+		create->cmplt = cpu_to_be64 ( dma ( &queue->cmplt_map,
+						    queue->cmplt.raw ) );
+		create->cmplt_count = cpu_to_be16 ( queue->count );
+	}
 }
 
 /**
  * Construct command to create receive queue
  *
  * @v queue		Receive queue
+ * @v qpl		Queue page list ID
  * @v cmd		Admin queue command
  */
-static void gve_create_rx_param ( struct gve_queue *queue,
+static void gve_create_rx_param ( struct gve_queue *queue, uint32_t qpl,
 				  union gve_admin_command *cmd ) {
 	struct gve_admin_create_rx *create = &cmd->create_rx;
 	const struct gve_queue_type *type = queue->type;
@@ -637,11 +728,13 @@ static void gve_create_rx_param ( struct gve_queue *queue,
 	create->notify_id = cpu_to_be32 ( type->irq );
 	create->res = cpu_to_be64 ( dma ( &queue->res_map, queue->res ) );
 	create->desc =
-		cpu_to_be64 ( dma ( &queue->desc_map, queue->desc.rx ) );
+		cpu_to_be64 ( dma ( &queue->desc_map, queue->desc.raw ) );
 	create->cmplt =
-		cpu_to_be64 ( dma ( &queue->cmplt_map, queue->cmplt.rx ) );
-	create->qpl_id = cpu_to_be32 ( type->qpl );
+		cpu_to_be64 ( dma ( &queue->cmplt_map, queue->cmplt.raw ) );
+	create->qpl_id = cpu_to_be32 ( qpl );
+	create->desc_count = cpu_to_be16 ( queue->count );
 	create->bufsz = cpu_to_be16 ( GVE_BUF_SIZE );
+	create->cmplt_count = cpu_to_be16 ( queue->count );
 }
 
 /**
@@ -653,19 +746,37 @@ static void gve_create_rx_param ( struct gve_queue *queue,
  */
 static int gve_create_queue ( struct gve_nic *gve, struct gve_queue *queue ) {
 	const struct gve_queue_type *type = queue->type;
+	const struct gve_queue_stride *stride = &queue->stride;
 	union gve_admin_command *cmd;
+	struct gve_buffer *buf;
 	unsigned int db_off;
 	unsigned int evt_idx;
+	unsigned int tag;
+	unsigned int i;
+	uint32_t qpl;
 	int rc;
 
 	/* Reset queue */
 	queue->prod = 0;
 	queue->cons = 0;
+	memset ( queue->desc.raw, 0, ( queue->count * stride->desc ) );
+	memset ( queue->cmplt.raw, 0, ( queue->count * stride->cmplt ) );
+	for ( i = 0 ; i < queue->fill ; i++ )
+		queue->tag[i] = i;
+
+	/* Pre-populate descriptor offsets */
+	buf = ( queue->desc.raw + stride->desc - sizeof ( *buf ) );
+	for ( i = 0 ; i < queue->count ; i++ ) {
+		tag = ( i & ( queue->fill - 1 ) );
+		buf->addr = cpu_to_be64 ( gve_address ( queue, tag ) );
+		buf = ( ( ( void * ) buf ) + stride->desc );
+	}
 
 	/* Construct request */
 	cmd = gve_admin_command ( gve );
 	cmd->hdr.opcode = type->create;
-	type->param ( queue, cmd );
+	qpl = ( ( gve->mode & GVE_MODE_QPL ) ? type->qpl : GVE_RAW_QPL );
+	type->param ( queue, qpl, cmd );
 
 	/* Issue command */
 	if ( ( rc = gve_admin ( gve ) ) != 0 )
@@ -796,6 +907,8 @@ static int gve_alloc_qpl ( struct gve_nic *gve, struct gve_qpl *qpl,
 	qpl->data = dma_umalloc ( gve->dma, &qpl->map, len, GVE_ALIGN );
 	if ( ! qpl->data )
 		return -ENOMEM;
+	qpl->base = ( ( gve->mode & GVE_MODE_QPL ) ?
+		      0 : dma ( &qpl->map, qpl->data ) );
 
 	DBGC ( gve, "GVE %p QPL %#08x at [%08lx,%08lx)\n",
 	       gve, qpl->id, virt_to_phys ( qpl->data ),
@@ -815,37 +928,6 @@ static void gve_free_qpl ( struct gve_nic *nic __unused,
 
 	/* Free pages */
 	dma_ufree ( &qpl->map, qpl->data, len );
-}
-
-/**
- * Get buffer address (within queue page list address space)
- *
- * @v queue		Descriptor queue
- * @v index		Buffer index
- * @ret addr		Buffer address within queue page list address space
- */
-static inline __attribute__ (( always_inline)) size_t
-gve_address ( struct gve_queue *queue, unsigned int index ) {
-
-	/* We allocate sufficient pages for the maximum fill level of
-	 * buffers, and reuse the pages in strict rotation as we
-	 * progress through the queue.
-	 */
-	return ( ( index & ( queue->fill - 1 ) ) * GVE_BUF_SIZE );
-}
-
-/**
- * Get buffer address
- *
- * @v queue		Descriptor queue
- * @v index		Buffer index
- * @ret addr		Buffer address
- */
-static inline __attribute__ (( always_inline )) void *
-gve_buffer ( struct gve_queue *queue, unsigned int index ) {
-
-	/* Pages are currently allocated as a single contiguous block */
-	return ( queue->qpl.data + gve_address ( queue, index ) );
 }
 
 /**
@@ -869,7 +951,7 @@ gve_next ( unsigned int seq ) {
 	 * that the sequence number changes whenever a new completion
 	 * is first written to a zero-initialised completion ring.
 	 */
-	seq = ( ( seq + 1 ) & GVE_RX_SEQ_MASK );
+	seq = ( ( seq + 1 ) & GVE_GQI_RX_SEQ_MASK );
 	return ( seq ? seq : 1 );
 }
 
@@ -882,12 +964,11 @@ gve_next ( unsigned int seq ) {
  */
 static int gve_alloc_queue ( struct gve_nic *gve, struct gve_queue *queue ) {
 	const struct gve_queue_type *type = queue->type;
+	struct gve_queue_stride *stride = &queue->stride;
 	struct dma_device *dma = gve->dma;
-	size_t desc_len = ( queue->count * type->desc_len );
-	size_t cmplt_len = ( queue->count * type->cmplt_len );
-	size_t res_len = sizeof ( *queue->res );
-	struct gve_buffer *buf;
-	unsigned int i;
+	size_t desc_len;
+	size_t cmplt_len;
+	size_t res_len;
 	int rc;
 
 	/* Sanity checks */
@@ -898,6 +979,12 @@ static int gve_alloc_queue ( struct gve_nic *gve, struct gve_queue *queue ) {
 		rc = -EINVAL;
 		goto err_sanity;
 	}
+
+	/* Set queue strides and calculate total lengths */
+	*stride = type->stride.gqi;
+	desc_len = ( queue->count * stride->desc );
+	cmplt_len = ( queue->count * stride->cmplt );
+	res_len = sizeof ( *queue->res );
 
 	/* Calculate maximum fill level */
 	assert ( ( type->fill & ( type->fill - 1 ) ) == 0 );
@@ -944,13 +1031,6 @@ static int gve_alloc_queue ( struct gve_nic *gve, struct gve_queue *queue ) {
 	}
 	memset ( queue->res, 0, res_len );
 
-	/* Populate descriptor offsets */
-	buf = ( queue->desc.raw + type->desc_len - sizeof ( *buf ) );
-	for ( i = 0 ; i < queue->count ; i++ ) {
-		buf->addr = cpu_to_be64 ( gve_address ( queue, i ) );
-		buf = ( ( ( void * ) buf ) + type->desc_len );
-	}
-
 	return 0;
 
 	dma_free ( &queue->res_map, queue->res, res_len );
@@ -973,9 +1053,9 @@ static int gve_alloc_queue ( struct gve_nic *gve, struct gve_queue *queue ) {
  * @v queue		Descriptor queue
  */
 static void gve_free_queue ( struct gve_nic *gve, struct gve_queue *queue ) {
-	const struct gve_queue_type *type = queue->type;
-	size_t desc_len = ( queue->count * type->desc_len );
-	size_t cmplt_len = ( queue->count * type->cmplt_len );
+	const struct gve_queue_stride *stride = &queue->stride;
+	size_t desc_len = ( queue->count * stride->desc );
+	size_t cmplt_len = ( queue->count * stride->cmplt );
 	size_t res_len = sizeof ( *queue->res );
 
 	/* Free queue resources */
@@ -1014,9 +1094,6 @@ static int gve_start ( struct gve_nic *gve ) {
 		if ( iobuf )
 			netdev_tx_complete_err ( netdev, iobuf, -ECANCELED );
 	}
-
-	/* Invalidate receive completions */
-	memset ( rx->cmplt.raw, 0, ( rx->count * rx->type->cmplt_len ) );
 
 	/* Reset receive sequence */
 	gve->seq = gve_next ( 0 );
@@ -1248,9 +1325,10 @@ static void gve_close ( struct net_device *netdev ) {
 static int gve_transmit ( struct net_device *netdev, struct io_buffer *iobuf ) {
 	struct gve_nic *gve = netdev->priv;
 	struct gve_queue *tx = &gve->tx;
-	struct gve_tx_descriptor *desc;
+	struct gve_gqi_tx_descriptor *gqi;
 	unsigned int count;
 	unsigned int index;
+	unsigned int tag;
 	size_t frag_len;
 	size_t offset;
 	size_t len;
@@ -1268,40 +1346,50 @@ static int gve_transmit ( struct net_device *netdev, struct io_buffer *iobuf ) {
 	}
 
 	/* Copy packet to queue pages and populate descriptors */
-	for ( offset = 0 ; offset < len ; offset += frag_len ) {
+	offset = 0;
+	while ( 1 ) {
+
+		/* Identify next available buffer */
+		index = ( tx->prod++ & ( tx->count - 1 ) );
+		tag = tx->tag[ index % GVE_TX_FILL ];
 
 		/* Sanity check */
-		assert ( gve->tx_iobuf[ tx->prod % GVE_TX_FILL ] == NULL );
+		assert ( gve->tx_iobuf[tag] == NULL );
 
 		/* Copy packet fragment */
 		frag_len = ( len - offset );
 		if ( frag_len > GVE_BUF_SIZE )
 			frag_len = GVE_BUF_SIZE;
-		memcpy ( gve_buffer ( tx, tx->prod ),
+		memcpy ( gve_buffer ( tx, tag ),
 			 ( iobuf->data + offset ), frag_len );
 
 		/* Populate descriptor */
-		index = ( tx->prod++ & ( tx->count - 1 ) );
-		desc = &tx->desc.tx[index];
-		memset ( &desc->pkt, 0, sizeof ( desc->pkt ) );
+		gqi = &tx->desc.tx.gqi[index];
 		if ( offset ) {
-			desc->pkt.type = GVE_TX_TYPE_CONT;
+			gqi->type = GVE_GQI_TX_TYPE_CONT;
+			gqi->count = 0;
+			gqi->total = 0;
 		} else {
-			desc->pkt.type = GVE_TX_TYPE_START;
-			desc->pkt.count = count;
-			desc->pkt.total = cpu_to_be16 ( len );
+			gqi->type = GVE_GQI_TX_TYPE_START;
+			gqi->count = count;
+			gqi->total = cpu_to_be16 ( len );
 		}
-		desc->pkt.len = cpu_to_be16 ( frag_len );
+		gqi->len = cpu_to_be16 ( frag_len );
 		DBGC2 ( gve, "GVE %p TX %#04x %#02x:%#02x len %#04x/%#04x at "
-			"%#08zx\n", gve, index, desc->pkt.type,
-			desc->pkt.count, be16_to_cpu ( desc->pkt.len ),
-			be16_to_cpu ( desc->pkt.total ),
-			gve_address ( tx, index ) );
+			"%#08zx\n", gve, index, gqi->type, gqi->count,
+			be16_to_cpu ( gqi->len ), be16_to_cpu ( gqi->total ),
+			gve_offset ( tx, tag ) );
+
+		/* Move to next descriptor */
+		offset += frag_len;
+		if ( offset < len )
+			continue;
+
+		/* Record I/O buffer against final descriptor */
+		gve->tx_iobuf[tag] = iobuf;
+		break;
 	}
 	assert ( ( tx->prod - tx->cons ) <= tx->fill );
-
-	/* Record I/O buffer against final descriptor */
-	gve->tx_iobuf[ ( tx->prod - 1U ) % GVE_TX_FILL ] = iobuf;
 
 	/* Ring doorbell */
 	wmb();
@@ -1319,6 +1407,7 @@ static void gve_poll_tx ( struct net_device *netdev ) {
 	struct gve_nic *gve = netdev->priv;
 	struct gve_queue *tx = &gve->tx;
 	struct io_buffer *iobuf;
+	unsigned int tag;
 	uint32_t count;
 
 	/* Read event counter */
@@ -1327,8 +1416,9 @@ static void gve_poll_tx ( struct net_device *netdev ) {
 	/* Process transmit completions */
 	while ( count != tx->cons ) {
 		DBGC2 ( gve, "GVE %p TX %#04x complete\n", gve, tx->cons );
-		iobuf = gve->tx_iobuf[ tx->cons % GVE_TX_FILL ];
-		gve->tx_iobuf[ tx->cons % GVE_TX_FILL ] = NULL;
+		tag = ( tx->cons % GVE_TX_FILL );
+		iobuf = gve->tx_iobuf[tag];
+		gve->tx_iobuf[tag] = NULL;
 		tx->cons++;
 		if ( iobuf )
 			netdev_tx_complete ( netdev, iobuf );
@@ -1343,10 +1433,11 @@ static void gve_poll_tx ( struct net_device *netdev ) {
 static void gve_poll_rx ( struct net_device *netdev ) {
 	struct gve_nic *gve = netdev->priv;
 	struct gve_queue *rx = &gve->rx;
-	struct gve_rx_completion *cmplt;
+	struct gve_gqi_rx_completion *gqi;
 	struct io_buffer *iobuf;
 	unsigned int index;
 	unsigned int seq;
+	unsigned int tag;
 	uint32_t cons;
 	size_t total;
 	size_t len;
@@ -1360,25 +1451,26 @@ static void gve_poll_rx ( struct net_device *netdev ) {
 
 		/* Read next possible completion */
 		index = ( cons++ & ( rx->count - 1 ) );
-		cmplt = &rx->cmplt.rx[index];
+		gqi = &rx->cmplt.rx.gqi[index];
 
 		/* Check sequence number */
-		if ( ( cmplt->pkt.seq & GVE_RX_SEQ_MASK ) != seq )
+		if ( ( gqi->seq & GVE_GQI_RX_SEQ_MASK ) != seq )
 			break;
 		seq = gve_next ( seq );
 
 		/* Parse completion */
-		len = be16_to_cpu ( cmplt->pkt.len );
+		len = be16_to_cpu ( gqi->len );
+		tag = ( index % GVE_RX_FILL );
 		DBGC2 ( gve, "GVE %p RX %#04x %#02x:%#02x len %#04zx at "
-			"%#08zx\n", gve, index, cmplt->pkt.seq,
-			cmplt->pkt.flags, len, gve_address ( rx, index ) );
+			"%#08zx\n", gve, index, gqi->seq, gqi->flags,
+			len, gve_offset ( rx, tag ) );
 
 		/* Accumulate a complete packet */
-		if ( cmplt->pkt.flags & GVE_RXF_ERROR ) {
+		if ( gqi->flags & GVE_GQI_RXF_ERROR ) {
 			total = 0;
 		} else {
 			total += len;
-			if ( cmplt->pkt.flags & GVE_RXF_MORE )
+			if ( gqi->flags & GVE_GQI_RXF_MORE )
 				continue;
 		}
 		gve->seq = seq;
@@ -1387,15 +1479,16 @@ static void gve_poll_rx ( struct net_device *netdev ) {
 		iobuf = ( total ? alloc_iob ( total ) : NULL );
 		for ( ; rx->cons != cons ; rx->cons++ ) {
 
-			/* Re-read completion length */
+			/* Re-read completion */
 			index = ( rx->cons & ( rx->count - 1 ) );
-			cmplt = &rx->cmplt.rx[index];
+			gqi = &rx->cmplt.rx.gqi[index];
+			tag = ( index % GVE_RX_FILL );
 
 			/* Copy data */
 			if ( iobuf ) {
-				len = be16_to_cpu ( cmplt->pkt.len );
+				len = be16_to_cpu ( gqi->len );
 				memcpy ( iob_put ( iobuf, len ),
-					 gve_buffer ( rx, rx->cons ), len );
+					 gve_buffer ( rx, tag ), len );
 			}
 		}
 		assert ( ( iobuf == NULL ) || ( iob_len ( iobuf ) == total ) );
@@ -1406,7 +1499,7 @@ static void gve_poll_rx ( struct net_device *netdev ) {
 			iob_pull ( iobuf, GVE_RX_PAD );
 			netdev_rx ( netdev, iobuf );
 		} else {
-			rc = ( ( cmplt->pkt.flags & GVE_RXF_ERROR ) ?
+			rc = ( ( gqi->flags & GVE_GQI_RXF_ERROR ) ?
 			       -EIO : -ENOMEM );
 			netdev_rx_err ( netdev, NULL, rc );
 		}
@@ -1485,7 +1578,11 @@ static const struct gve_queue_type gve_tx_type = {
 	.qpl = GVE_TX_QPL,
 	.irq = GVE_TX_IRQ,
 	.fill = GVE_TX_FILL,
-	.desc_len = sizeof ( struct gve_tx_descriptor ),
+	.stride = {
+		.gqi = {
+			.desc = sizeof ( struct gve_gqi_tx_descriptor ),
+		},
+	},
 	.create = GVE_ADMIN_CREATE_TX,
 	.destroy = GVE_ADMIN_DESTROY_TX,
 };
@@ -1497,8 +1594,12 @@ static const struct gve_queue_type gve_rx_type = {
 	.qpl = GVE_RX_QPL,
 	.irq = GVE_RX_IRQ,
 	.fill = GVE_RX_FILL,
-	.desc_len = sizeof ( struct gve_rx_descriptor ),
-	.cmplt_len = sizeof ( struct gve_rx_completion ),
+	.stride = {
+		.gqi = {
+			.desc = sizeof ( struct gve_gqi_rx_descriptor ),
+			.cmplt = sizeof ( struct gve_gqi_rx_completion ),
+		},
+	},
 	.create = GVE_ADMIN_CREATE_RX,
 	.destroy = GVE_ADMIN_DESTROY_RX,
 };
@@ -1570,6 +1671,8 @@ static int gve_probe ( struct pci_device *pci ) {
 	gve->netdev = netdev;
 	gve->tx.type = &gve_tx_type;
 	gve->rx.type = &gve_rx_type;
+	gve->tx.tag = gve->tx_tag;
+	gve->rx.tag = gve->rx_tag;
 	process_init_stopped ( &gve->startup, &gve_startup_desc,
 			       &netdev->refcnt );
 	timer_init ( &gve->watchdog, gve_watchdog, &netdev->refcnt );
