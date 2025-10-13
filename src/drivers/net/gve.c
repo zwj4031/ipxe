@@ -591,6 +591,7 @@ static int gve_configure ( struct gve_nic *gve ) {
 	struct gve_events *events = &gve->events;
 	struct gve_irqs *irqs = &gve->irqs;
 	union gve_admin_command *cmd;
+	uint32_t doorbell;
 	unsigned int db_off;
 	unsigned int i;
 	int rc;
@@ -612,12 +613,14 @@ static int gve_configure ( struct gve_nic *gve ) {
 		return rc;
 
 	/* Disable all interrupts */
+	doorbell = ( ( gve->mode & GVE_MODE_DQO ) ?
+		     0 : bswap_32 ( GVE_GQI_IRQ_DISABLE ) );
 	for ( i = 0 ; i < GVE_IRQ_COUNT ; i++ ) {
 		db_off = ( be32_to_cpu ( irqs->irq[i].db_idx ) *
 			   sizeof ( uint32_t ) );
 		DBGC ( gve, "GVE %p IRQ %d doorbell +%#04x\n", gve, i, db_off );
 		irqs->db[i] = ( gve->db + db_off );
-		writel ( bswap_32 ( GVE_IRQ_DISABLE ), irqs->db[i] );
+		writel ( doorbell, irqs->db[i] );
 	}
 
 	return 0;
@@ -810,6 +813,13 @@ static int gve_create_queue ( struct gve_nic *gve, struct gve_queue *queue ) {
 	queue->event = &gve->events.event[evt_idx];
 	assert ( queue->event->count == 0 );
 
+	/* Unmask dummy interrupt */
+	pci_msix_unmask ( &gve->msix, type->irq );
+
+	/* Rearm queue interrupt if applicable */
+	if ( gve->mode & GVE_MODE_DQO )
+		writel ( GVE_DQO_IRQ_REARM, gve->irqs.db[type->irq] );
+
 	return 0;
 }
 
@@ -823,6 +833,9 @@ static int gve_create_queue ( struct gve_nic *gve, struct gve_queue *queue ) {
 static int gve_destroy_queue ( struct gve_nic *gve, struct gve_queue *queue ) {
 	const struct gve_queue_type *type = queue->type;
 	int rc;
+
+	/* Mask dummy interrupt */
+	pci_msix_mask ( &gve->msix, type->irq );
 
 	/* Issue command */
 	if ( ( rc = gve_admin_simple ( gve, type->destroy, 0 ) ) != 0 )
@@ -925,7 +938,7 @@ static int gve_alloc_qpl ( struct gve_nic *gve, struct gve_qpl *qpl,
 	qpl->data = dma_umalloc ( gve->dma, &qpl->map, len, GVE_ALIGN );
 	if ( ! qpl->data )
 		return -ENOMEM;
-	qpl->base = ( ( gve->mode & GVE_MODE_QPL ) ?
+	qpl->base = ( ( gve->mode == GVE_MODE_QPL ) ?
 		      0 : dma ( &qpl->map, qpl->data ) );
 
 	DBGC ( gve, "GVE %p QPL %#08x at [%08lx,%08lx)\n",
@@ -1409,8 +1422,7 @@ static int gve_transmit ( struct net_device *netdev, struct io_buffer *iobuf ) {
 				cpu_to_le64 ( gve_address ( tx, tag ) );
 			if ( next == len ) {
 				dqo->type = ( GVE_DQO_TX_TYPE_PACKET |
-					      GVE_DQO_TX_TYPE_LAST |
-					      GVE_DQO_TX_TYPE_REPORT );
+					      GVE_DQO_TX_TYPE_LAST );
 				dqo->tag.id = tag;
 				dqo->tag.count = count;
 			} else {
@@ -1493,6 +1505,7 @@ static void gve_poll_tx ( struct net_device *netdev ) {
 			bit = ( dqo->flags & GVE_DQO_TXF_GEN );
 			if ( ( !! bit ) == ( !! gen ) )
 				break;
+			rmb();
 			tx->done++;
 
 			/* Ignore non-packet completions */
@@ -1583,6 +1596,7 @@ static void gve_poll_rx ( struct net_device *netdev ) {
 			bit = ( dqo->len & cpu_to_le16 ( GVE_DQO_RXL_GEN ) );
 			if ( ( !! bit ) == ( !! gen ) )
 				break;
+			rmb();
 
 			/* Parse completion */
 			len = ( le16_to_cpu ( dqo->len ) &
@@ -1610,6 +1624,7 @@ static void gve_poll_rx ( struct net_device *netdev ) {
 			/* Check sequence number */
 			if ( ( gqi->seq & GVE_GQI_RX_SEQ_MASK ) != seq )
 				break;
+			rmb();
 			seq = gve_next ( seq );
 
 			/* Parse completion */
@@ -1741,6 +1756,7 @@ static void gve_refill_rx ( struct net_device *netdev ) {
  * @v netdev		Network device
  */
 static void gve_poll ( struct net_device *netdev ) {
+	struct gve_nic *gve = netdev->priv;
 
 	/* Do nothing if queues are not yet set up */
 	if ( ! netdev_link_ok ( netdev ) )
@@ -1754,6 +1770,12 @@ static void gve_poll ( struct net_device *netdev ) {
 
 	/* Refill receive queue */
 	gve_refill_rx ( netdev );
+
+	/* Rearm queue interrupts if applicable */
+	if ( gve->mode & GVE_MODE_DQO ) {
+		writel ( GVE_DQO_IRQ_REARM, gve->irqs.db[GVE_TX_IRQ] );
+		writel ( GVE_DQO_IRQ_REARM, gve->irqs.db[GVE_RX_IRQ] );
+	}
 }
 
 /** GVE network device operations */
@@ -1914,6 +1936,10 @@ static int gve_probe ( struct pci_device *pci ) {
 	dma_set_mask_64bit ( gve->dma );
 	assert ( netdev->dma == NULL );
 
+	/* Configure dummy MSI-X interrupt */
+	if ( ( rc = pci_msix_enable ( pci, &gve->msix ) ) != 0 )
+		goto err_msix;
+
 	/* Allocate admin queue */
 	if ( ( rc = gve_admin_alloc ( gve ) ) != 0 )
 		goto err_admin;
@@ -1934,6 +1960,8 @@ static int gve_probe ( struct pci_device *pci ) {
 	gve_reset ( gve );
 	gve_admin_free ( gve );
  err_admin:
+	pci_msix_disable ( pci, &gve->msix );
+ err_msix:
 	iounmap ( gve->db );
  err_db:
 	iounmap ( gve->cfg );
@@ -1961,6 +1989,9 @@ static void gve_remove ( struct pci_device *pci ) {
 
 	/* Free admin queue */
 	gve_admin_free ( gve );
+
+	/* Disable dummy MSI-X interrupt */
+	pci_msix_disable ( pci, &gve->msix );
 
 	/* Unmap registers */
 	iounmap ( gve->db );

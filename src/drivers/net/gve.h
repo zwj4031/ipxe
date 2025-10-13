@@ -16,6 +16,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <stdint.h>
 #include <ipxe/dma.h>
 #include <ipxe/pci.h>
+#include <ipxe/pcimsix.h>
 #include <ipxe/in.h>
 #include <ipxe/process.h>
 #include <ipxe/retry.h>
@@ -443,8 +444,11 @@ struct gve_irqs {
 	volatile uint32_t *db[GVE_IRQ_COUNT];
 };
 
-/** Disable interrupts */
-#define GVE_IRQ_DISABLE 0x40000000UL
+/** Disable in-order queue interrupt */
+#define GVE_GQI_IRQ_DISABLE 0x40000000UL
+
+/** Rearm out-of-order queue interrupt */
+#define GVE_DQO_IRQ_REARM 0x00000019UL
 
 /**
  * Queue resources
@@ -526,9 +530,10 @@ struct gve_qpl {
 	unsigned int id;
 	/** Queue page list base device address
 	 *
-	 * This will be zero if queue page list addressing is in use,
-	 * or the DMA address of the first page if raw DMA addressing
-	 * is in use.
+	 * This will be zero in the GQI-QPL operating mode, or the DMA
+	 * address of the first page in any other operating mode.
+	 * (Despite its name, DQO-QPL still requires the use of raw
+	 * DMA addresses in transmit and receive descriptors.)
 	 */
 	physaddr_t base;
 };
@@ -539,14 +544,9 @@ struct gve_qpl {
 /**
  * Maximum number of transmit buffers
  *
- * This is a policy decision.  Experiments suggest that out-of-order
- * transmit queues will write completions only in batches of 128
- * bytes, comprising 8 descriptor completions and 8 packet
- * completions.  The transmit fill level must therefore be greater
- * than 8, so that completions will be written out before the transmit
- * ring runs out of space.
+ * This is a policy decision.
  */
-#define GVE_TX_FILL 16
+#define GVE_TX_FILL 8
 
 /** Transmit queue page list ID */
 #define GVE_TX_QPL 0x18ae5458
@@ -619,9 +619,6 @@ struct gve_dqo_tx_descriptor {
 
 /** Last transmit descriptor in a packet */
 #define GVE_DQO_TX_TYPE_LAST 0x20
-
-/** Report transmit completion */
-#define GVE_DQO_TX_TYPE_REPORT 0x80
 
 /** An out-of-order transmit completion */
 struct gve_dqo_tx_completion {
@@ -856,6 +853,8 @@ struct gve_nic {
 	struct net_device *netdev;
 	/** DMA device */
 	struct dma_device *dma;
+	/** Dummy MSI-X interrupt */
+	struct pci_msix msix;
 
 	/** Admin queue */
 	struct gve_admin admin;
