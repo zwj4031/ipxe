@@ -34,13 +34,10 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #define ENA_AENQ_COUNT 2
 
 /** Number of transmit queue entries */
-#define ENA_TX_COUNT 16
+#define ENA_TX_COUNT 32
 
 /** Number of receive queue entries */
-#define ENA_RX_COUNT 128
-
-/** Receive queue maximum fill level */
-#define ENA_RX_FILL 16
+#define ENA_RX_COUNT 32
 
 /** Base address low register offset */
 #define ENA_BASE_LO 0x0
@@ -145,6 +142,62 @@ struct ena_device_attributes {
 	uint32_t mtu;
 } __attribute__ (( packed ));
 
+/** Device supports low latency queues */
+#define ENA_FEATURE_LLQ 0x00000010
+
+/** Low latency queue config */
+#define ENA_LLQ_CONFIG 4
+
+/** A low latency queue option */
+struct ena_llq_option {
+	/** Bitmask of supported option values */
+	uint16_t supported;
+	/** Single-entry bitmask of the enabled option value */
+	uint16_t enabled;
+} __attribute__ (( packed ));
+
+/** Low latency queue config */
+struct ena_llq_config {
+	/** Maximum number of low latency queues */
+	uint32_t queues;
+	/** Maximum queue depth */
+	uint32_t count;
+	/** Header locations */
+	struct ena_llq_option header;
+	/** Entry sizes */
+	struct ena_llq_option size;
+	/** Descriptor counts */
+	struct ena_llq_option desc;
+	/** Descriptor strides */
+	struct ena_llq_option stride;
+	/** Reserved */
+	uint8_t reserved_a[4];
+	/** Acceleration mode */
+	uint16_t mode;
+	/** Maximum burst size */
+	uint16_t burst;
+	/** Reserved */
+	uint8_t reserved_b[4];
+} __attribute__ (( packed ));
+
+/** Low latency queue header locations */
+enum ena_llq_header {
+	/** Headers are placed inline immediately after descriptors */
+	ENA_LLQ_HEADER_INLINE = 0x0001,
+};
+
+/** Low latency queue entry sizes */
+enum ena_llq_size {
+	/** Entries are 128 bytes */
+	ENA_LLQ_SIZE_128 = 0x0001,
+};
+
+/** Low latency queue descriptor count */
+enum ena_llq_desc {
+	/** Two descriptors before inline headers */
+	ENA_LLQ_DESC_2 = 0x0002,
+};
+
 /** Async event notification queue config */
 #define ENA_AENQ_CONFIG 26
 
@@ -237,6 +290,8 @@ struct ena_host_info {
 union ena_feature {
 	/** Device attributes */
 	struct ena_device_attributes device;
+	/** Low latency queue configuration */
+	struct ena_llq_config llq;
 	/** Async event notification queue config */
 	struct ena_aenq_config aenq;
 	/** Host attributes */
@@ -280,6 +335,8 @@ struct ena_create_sq_req {
 enum ena_sq_policy {
 	/** Use host memory */
 	ENA_SQ_HOST_MEMORY = 0x0001,
+	/** Use on-device memory (must be used in addition to host memory) */
+	ENA_SQ_DEVICE_MEMORY = 0x0002,
 	/** Memory is contiguous */
 	ENA_SQ_CONTIGUOUS = 0x0100,
 };
@@ -291,13 +348,13 @@ struct ena_create_sq_rsp {
 	/** Submission queue identifier */
 	uint16_t id;
 	/** Reserved */
-	uint8_t reserved[2];
+	uint8_t reserved_a[2];
 	/** Doorbell register offset */
 	uint32_t doorbell;
 	/** LLQ descriptor ring offset */
-	uint32_t llq_desc;
-	/** LLQ header offset */
-	uint32_t llq_data;
+	uint32_t llqe;
+	/** Reserved */
+	uint8_t reserved_b[4];
 } __attribute__ (( packed ));
 
 /** Destroy submission queue */
@@ -563,17 +620,30 @@ struct ena_aenq {
 struct ena_tx_sqe {
 	/** Length */
 	uint16_t len;
-	/** Reserved */
-	uint8_t reserved_a;
+	/** Metadata flags */
+	uint8_t meta;
 	/** Flags */
 	uint8_t flags;
 	/** Reserved */
 	uint8_t reserved_b[3];
 	/** Request identifier */
 	uint8_t id;
-	/** Address */
-	uint64_t address;
+	/** Address and inlined length */
+	union {
+		/** Address */
+		uint64_t address;
+		/** Inlined length */
+		struct {
+			/** Reserved */
+			uint8_t reserved[7];
+			/** Inlined length */
+			uint8_t inlined;
+		} __attribute__ (( packed ));
+	} __attribute__ (( packed ));
 } __attribute__ (( packed ));
+
+/** This is a metadata entry */
+#define ENA_TX_SQE_META 0x80
 
 /** Receive submission queue entry */
 struct ena_rx_sqe {
@@ -637,6 +707,16 @@ struct ena_rx_cqe {
 /** Completion queue ownership phase flag */
 #define ENA_CQE_PHASE 0x01
 
+/** Low latency transmit queue bounce buffer */
+struct ena_tx_llqe {
+	/** Pointless metadata descriptor */
+	struct ena_tx_sqe meta;
+	/** Transmit descriptor */
+	struct ena_tx_sqe sqe;
+	/** Inlined header data */
+	uint8_t inlined[96];
+} __attribute__ (( packed ));
+
 /** Submission queue */
 struct ena_sq {
 	/** Entries */
@@ -645,11 +725,15 @@ struct ena_sq {
 		struct ena_tx_sqe *tx;
 		/** Receive submission queue entries */
 		struct ena_rx_sqe *rx;
+		/** Low latency queue bounce buffer */
+		struct ena_tx_llqe *llq;
 		/** Raw data */
 		void *raw;
 	} sqe;
 	/** Buffer IDs */
 	uint8_t *ids;
+	/** Low latency queue base */
+	void *llqe;
 	/** Doorbell register offset */
 	unsigned int doorbell;
 	/** Total length of entries */
@@ -658,16 +742,18 @@ struct ena_sq {
 	unsigned int prod;
 	/** Phase */
 	unsigned int phase;
+	/** Queue policy */
+	uint16_t policy;
 	/** Submission queue identifier */
 	uint16_t id;
 	/** Direction */
 	uint8_t direction;
 	/** Number of entries */
 	uint8_t count;
-	/** Maximum fill level */
-	uint8_t max;
 	/** Fill level (limited to completion queue size) */
 	uint8_t fill;
+	/** Maximum inline header length */
+	uint8_t inlined;
 };
 
 /**
@@ -676,18 +762,17 @@ struct ena_sq {
  * @v sq		Submission queue
  * @v direction		Direction
  * @v count		Number of entries
- * @v max		Maximum fill level
  * @v size		Size of each entry
  * @v ids		Buffer IDs
  */
 static inline __attribute__ (( always_inline )) void
 ena_sq_init ( struct ena_sq *sq, unsigned int direction, unsigned int count,
-	      unsigned int max, size_t size, uint8_t *ids ) {
+	      size_t size, uint8_t *ids ) {
 
 	sq->len = ( count * size );
+	sq->policy = ( ENA_SQ_HOST_MEMORY | ENA_SQ_CONTIGUOUS );
 	sq->direction = direction;
 	sq->count = count;
-	sq->max = max;
 	sq->ids = ids;
 }
 
@@ -751,6 +836,8 @@ struct ena_nic {
 	void *regs;
 	/** On-device memory */
 	void *mem;
+	/** Device features */
+	uint32_t features;
 	/** Host info */
 	struct ena_host_info *info;
 	/** Admin queue */
