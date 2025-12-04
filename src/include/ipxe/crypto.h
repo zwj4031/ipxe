@@ -121,55 +121,48 @@ struct cipher_algorithm {
 struct pubkey_algorithm {
 	/** Algorithm name */
 	const char *name;
-	/** Calculate maximum output length
-	 *
-	 * @v key		Key
-	 * @ret max_len		Maximum output length
-	 */
-	size_t ( * max_len ) ( const struct asn1_cursor *key );
 	/** Encrypt
 	 *
 	 * @v key		Key
 	 * @v plaintext		Plaintext
-	 * @v plaintext_len	Length of plaintext
 	 * @v ciphertext	Ciphertext
-	 * @ret ciphertext_len	Length of ciphertext, or negative error
+	 * @ret rc		Return status code
 	 */
-	int ( * encrypt ) ( const struct asn1_cursor *key, const void *data,
-			    size_t len, void *out );
+	int ( * encrypt ) ( const struct asn1_cursor *key,
+			    const struct asn1_cursor *plaintext,
+			    struct asn1_builder *ciphertext );
 	/** Decrypt
 	 *
 	 * @v key		Key
 	 * @v ciphertext	Ciphertext
-	 * @v ciphertext_len	Ciphertext length
 	 * @v plaintext		Plaintext
-	 * @ret plaintext_len	Plaintext length, or negative error
+	 * @ret rc		Return status code
 	 */
-	int ( * decrypt ) ( const struct asn1_cursor *key, const void *data,
-			    size_t len, void *out );
+	int ( * decrypt ) ( const struct asn1_cursor *key,
+			    const struct asn1_cursor *ciphertext,
+			    struct asn1_builder *plaintext );
 	/** Sign digest value
 	 *
 	 * @v key		Key
 	 * @v digest		Digest algorithm
 	 * @v value		Digest value
 	 * @v signature		Signature
-	 * @ret signature_len	Signature length, or negative error
+	 * @ret rc		Return status code
 	 */
 	int ( * sign ) ( const struct asn1_cursor *key,
 			 struct digest_algorithm *digest, const void *value,
-			 void *signature );
+			 struct asn1_builder *builder );
 	/** Verify signed digest value
 	 *
 	 * @v key		Key
 	 * @v digest		Digest algorithm
 	 * @v value		Digest value
 	 * @v signature		Signature
-	 * @v signature_len	Signature length
 	 * @ret rc		Return status code
 	 */
 	int ( * verify ) ( const struct asn1_cursor *key,
 			   struct digest_algorithm *digest, const void *value,
-			   const void *signature, size_t signature_len );
+			   const struct asn1_cursor *signature );
 	/** Check that public key matches private key
 	 *
 	 * @v private_key	Private key
@@ -267,36 +260,32 @@ is_auth_cipher ( struct cipher_algorithm *cipher ) {
 	return cipher->authsize;
 }
 
-static inline __attribute__ (( always_inline )) size_t
-pubkey_max_len ( struct pubkey_algorithm *pubkey,
-		 const struct asn1_cursor *key ) {
-	return pubkey->max_len ( key );
-}
-
 static inline __attribute__ (( always_inline )) int
 pubkey_encrypt ( struct pubkey_algorithm *pubkey, const struct asn1_cursor *key,
-		 const void *data, size_t len, void *out ) {
-	return pubkey->encrypt ( key, data, len, out );
+		 const struct asn1_cursor *plaintext,
+		 struct asn1_builder *ciphertext ) {
+	return pubkey->encrypt ( key, plaintext, ciphertext );
 }
 
 static inline __attribute__ (( always_inline )) int
 pubkey_decrypt ( struct pubkey_algorithm *pubkey, const struct asn1_cursor *key,
-		 const void *data, size_t len, void *out ) {
-	return pubkey->decrypt ( key, data, len, out );
+		 const struct asn1_cursor *ciphertext,
+		 struct asn1_builder *plaintext ) {
+	return pubkey->decrypt ( key, ciphertext, plaintext );
 }
 
 static inline __attribute__ (( always_inline )) int
 pubkey_sign ( struct pubkey_algorithm *pubkey, const struct asn1_cursor *key,
 	      struct digest_algorithm *digest, const void *value,
-	      void *signature ) {
+	      struct asn1_builder *signature ) {
 	return pubkey->sign ( key, digest, value, signature );
 }
 
 static inline __attribute__ (( always_inline )) int
 pubkey_verify ( struct pubkey_algorithm *pubkey, const struct asn1_cursor *key,
 		struct digest_algorithm *digest, const void *value,
-		const void *signature, size_t signature_len ) {
-	return pubkey->verify ( key, digest, value, signature, signature_len );
+		const struct asn1_cursor *signature ) {
+	return pubkey->verify ( key, digest, value, signature );
 }
 
 static inline __attribute__ (( always_inline )) int
@@ -324,20 +313,20 @@ extern void cipher_null_decrypt ( void *ctx, const void *src, void *dst,
 				  size_t len );
 extern void cipher_null_auth ( void *ctx, void *auth );
 
-extern size_t pubkey_null_max_len ( const struct asn1_cursor *key );
 extern int pubkey_null_encrypt ( const struct asn1_cursor *key,
-				 const void *plaintext, size_t plaintext_len,
-				 void *ciphertext );
+				 const struct asn1_cursor *plaintext,
+				 struct asn1_builder *ciphertext );
 extern int pubkey_null_decrypt ( const struct asn1_cursor *key,
-				 const void *ciphertext, size_t ciphertext_len,
-				 void *plaintext );
+				 const struct asn1_cursor *ciphertext,
+				 struct asn1_builder *plaintext );
 extern int pubkey_null_sign ( const struct asn1_cursor *key,
 			      struct digest_algorithm *digest,
-			      const void *value, void *signature );
+			      const void *value,
+			      struct asn1_builder *signature );
 extern int pubkey_null_verify ( const struct asn1_cursor *key,
 				struct digest_algorithm *digest,
-				const void *value, const void *signature ,
-				size_t signature_len );
+				const void *value,
+				const struct asn1_cursor *signature );
 
 extern struct digest_algorithm digest_null;
 extern struct cipher_algorithm cipher_null;
